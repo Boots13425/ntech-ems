@@ -1,0 +1,117 @@
+import { expect, test } from '@playwright/test'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+
+test('secure sign-in → MFA → organization/contact workflow → mobile → safe offline shell', async ({ page, context }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('/login')
+  await page.getByLabel('Email address', { exact: true }).fill(process.env.E2E_EMAIL!)
+  await page.getByLabel('Password', { exact: true }).fill(process.env.E2E_PASSWORD!)
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: 'Set up authenticator' }).click()
+  const secret = await page.locator('code').textContent()
+  const python = fileURLToPath(new URL('../../backend/.venv/Scripts/python.exe', import.meta.url))
+  const result = spawnSync(python, ['-c', 'import sys,pyotp;print(pyotp.TOTP(sys.stdin.read().strip()).now())'], { input: secret || '', encoding: 'utf8' })
+  expect(result.status).toBe(0)
+  await page.getByLabel('Authentication or recovery code').fill(result.stdout.trim())
+  await page.getByRole('button', { name: 'Verify and continue' }).click()
+  await expect(page.getByRole('heading', { name: 'Save your recovery codes' })).toBeVisible()
+  await page.getByRole('button', { name: 'I’ve saved my codes' }).click()
+  await expect(page.getByRole('heading', { name: /Hello,/ })).toBeVisible()
+  await expect(page.getByText('Your business story starts here')).toBeVisible()
+  await page.screenshot({ path: '../.verification/dashboard-desktop.png', fullPage: true })
+  const session = (await context.cookies()).find(c => c.name === 'ntech_session')
+  expect(session?.httpOnly).toBe(true)
+  const csrf = (await context.cookies()).find(c => c.name === 'ntech_csrf')
+  const rejected = await page.request.post('/api/organizations', {
+    headers: { Origin: 'https://untrusted.example', 'X-CSRF-Token': csrf?.value || '' },
+    data: { name: 'Must be rejected' },
+  })
+  expect(rejected.status()).toBe(403)
+
+  await page.getByRole('link', { name: 'Add an organization' }).click()
+  await page.getByLabel('Organization name *', { exact: true }).fill('Browser Verification Organization')
+  await page.getByLabel('Industry', { exact: true }).fill('Technology')
+  await page.getByRole('checkbox', { name: 'customer', exact: true }).check()
+  await page.getByRole('checkbox', { name: 'partner', exact: true }).check()
+  await page.getByRole('button', { name: 'Create organization', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('link', { name: 'Browser Verification Organization', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Browser Verification Organization' })).toBeVisible()
+  await page.getByRole('button', { name: 'Add contact', exact: true }).click()
+  await page.getByLabel('Full name *').fill('Browser Verification Contact')
+  await page.getByLabel('Email address', { exact: true }).fill('browser-contact@example.org')
+  await page.getByLabel('Primary contact for this organization').check()
+  await page.getByRole('button', { name: 'Save contact', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Browser Verification Contact' })).toBeVisible()
+  await page.getByRole('button', { name: 'Edit organization', exact: true }).click()
+  await page.getByLabel('Relationship notes').fill('Saved through the real browser and PostgreSQL API.')
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(page.getByText('Saved through the real browser and PostgreSQL API.')).toBeVisible()
+  await page.screenshot({ path: '../.verification/organization-desktop.png', fullPage: true })
+
+  await page.getByRole('link', { name: 'Partners', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Partners', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Browser Verification Organization', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Customers', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Browser Verification Organization', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Staff management', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Staff management' })).toBeVisible()
+  await page.getByRole('link', { name: 'Email campaigns', exact: true }).click()
+  await expect(page.getByText('Upcoming module', { exact: true })).toBeVisible()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  const box = await page.getByRole('dialog').boundingBox()
+  expect(box!.y).toBeLessThan(10)
+  expect(box!.height).toBeGreaterThan(800)
+  await page.getByRole('dialog').getByRole('link', { name: 'Overview', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /Hello,/ })).toBeVisible()
+  await page.screenshot({ path: '../.verification/dashboard-mobile.png', fullPage: true })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click()
+  await page.getByRole('dialog').getByRole('link', { name: 'Organizations', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Organizations', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^Browser Verification Organization/ })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+  const manifestResponse = await page.request.get('/manifest.webmanifest')
+  expect(manifestResponse.ok()).toBe(true)
+  const manifest = await manifestResponse.json()
+  expect(manifest.display).toBe('standalone')
+  expect(manifest.icons.length).toBe(3)
+  for (const icon of manifest.icons) expect((await page.request.get(icon.src)).ok()).toBe(true)
+  // A plain HTTP LAN origin supports the interface, but service workers require a secure context.
+  if (await page.evaluate(() => window.isSecureContext)) {
+    const cachesBefore = await page.evaluate(async () => {
+      await navigator.serviceWorker.ready
+      const names = await caches.keys()
+      const urls: string[] = []
+      for (const name of names) { const cache = await caches.open(name); urls.push(...(await cache.keys()).map(r => r.url)) }
+      return urls
+    })
+    expect(cachesBefore.length).toBeGreaterThan(0)
+    expect(cachesBefore.some(url => new URL(url).pathname.startsWith('/api/'))).toBe(false)
+    const cdp = await context.newCDPSession(page)
+    const installability = await cdp.send('Page.getInstallabilityErrors')
+    expect(installability.installabilityErrors).toEqual([])
+    expect(await page.evaluate(() => localStorage.length)).toBe(0)
+    await context.setOffline(true)
+    await page.reload()
+    await expect(page.getByText('We couldn’t load this information')).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('Browser Verification Organization', { exact: true })).toHaveCount(0)
+    await context.setOffline(false)
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Organizations', exact: true })).toBeVisible()
+  } else {
+    expect(await page.evaluate(() => 'serviceWorker' in navigator)).toBe(false)
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Organizations', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: /^Browser Verification Organization/ })).toBeVisible()
+  }
+  expect(await page.evaluate(() => localStorage.length)).toBe(0)
+  expect(errors).toEqual([])
+})

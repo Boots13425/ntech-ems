@@ -1,0 +1,34 @@
+@import '@fontsource-variable/inter';
+@import 'tailwindcss';
+@custom-variant dark (&:is(.dark *));
+@theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--foreground);
+  --color-popover: #fff; --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary); --color-primary-foreground: #fff;
+  --color-secondary: #edf1f7; --color-secondary-foreground: #263b5c;
+  --color-muted: #f1f4f8; --color-muted-foreground: #69778c;
+  --color-accent: #edf2f8; --color-accent-foreground: #14213a;
+  --color-destructive: #c73a43; --color-destructive-foreground: #fff;
+  --color-border: #e4e9f0; --color-input: #dce3ed; --color-ring: #3972c4;
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+}
+:root { --background: #f6f8fb; --foreground: #17253d; --card: #fff; --primary: #2458a0; --radius: .75rem; }
+@layer base {
+  * { @apply border-border; }
+  body { @apply m-0 bg-background font-sans text-foreground antialiased; font-feature-settings: 'cv11', 'ss01'; }
+  button:not(:disabled), [role='button']:not([aria-disabled='true']) { cursor: pointer; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-ring; }
+  input, select, textarea { font-size: 14px; }
+  ::selection { background: #d8e7fb; }
+}
+.field-label { @apply mb-2 block text-xs font-semibold text-slate-600; }
+.select-input { @apply h-10 w-full rounded-lg border border-input bg-white px-3 text-sm shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/15; }
+.panel { @apply overflow-hidden rounded-xl border bg-white shadow-[0_2px_5px_-4px_#14213a26]; }
+.table-head { @apply bg-slate-50/80 text-[10px] font-semibold tracking-[.09em] text-slate-500 uppercase; }
+.class-prospect { @apply border-blue-100 bg-blue-50 text-blue-700; }
+.class-customer { @apply border-emerald-100 bg-emerald-50 text-emerald-700; }
+.class-partner { @apply border-violet-100 bg-violet-50 text-violet-700; }
+.class-supplier { @apply border-amber-100 bg-amber-50 text-amber-700; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

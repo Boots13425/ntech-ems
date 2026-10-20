@@ -1,0 +1,10 @@
+NTECH EMS recovery codes — store privately. Each code can be used once.
+
+df5fb4e1db7a25b22500
+46f52a192005f959ca72
+6561d13f68f1f29a0e32
+20a4a6ed63a4227b36b9
+53f5dd2b07438ae28d0a
+38269af5d3e99083ec4a
+cc81d32a15d3479b728a
+c322597b89132e69e0fe

@@ -1,0 +1,11 @@
+{
+  "name": "ntech-ems-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/start-lan.mjs",
+    "start:preview": "node scripts/start-lan.mjs --preview",
+    "lan:urls": "node scripts/start-lan.mjs --urls",
+    "test:lan": "node --test scripts/lan.test.mjs"
+  }
+}

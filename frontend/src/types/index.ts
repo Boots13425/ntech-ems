@@ -1,0 +1,7 @@
+export type User = { id: string; full_name: string; email: string; roles: string[]; responsibilities: string[]; permissions: string[]; is_active: boolean; mfa_enabled: boolean; must_change_password: boolean; session_state: 'authenticated' | 'mfa_required' | 'enrollment_required'; created_at: string }
+export type Classification = 'prospect' | 'customer' | 'partner' | 'supplier'
+export type Contact = { id: string; full_name: string; job_title: string | null; email: string | null; phone: string | null; is_primary: boolean; created_at: string }
+export type Organization = { id: string; name: string; industry: string | null; country: string; city: string | null; email: string | null; phone: string | null; website: string | null; address: string | null; notes?: string | null; owner_id: string; created_by_id: string; classifications: Classification[]; contact_count: number; contacts?: Contact[]; created_at: string; updated_at: string }
+export type Activity = { id: string; action: string; entity_type: string; entity_id: string; organization_id: string; details: Record<string, unknown>; actor_name: string; created_at: string }
+export type Page<T> = { items: T[]; total: number; page: number; page_size: number }
+export type Dashboard = { total_organizations: number | null; total_customers: number | null; total_partners: number | null; total_prospects: number | null; total_staff: number | null; recent_activity: Activity[]; scope: 'company' | 'assigned' }
