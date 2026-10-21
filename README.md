@@ -21,7 +21,7 @@ Configure `backend/.env` from `.env.example`, or create new local databases with
 .\.venv\Scripts\python.exe scripts/setup_local.py
 ```
 
-The helper uses local PostgreSQL administrator access through libpq or `ADMIN_DATABASE_URL`. It creates a restricted application role, separate application/test databases, and random local secrets. Existing configuration/database names are preserved. **This workstation is already configured.** Never commit `.env`.
+The helper uses local PostgreSQL administrator access through libpq or `ADMIN_DATABASE_URL`. If no password is available, it prompts privately for your local PostgreSQL administrator password. It creates a restricted application role, separate application/test databases, and random local secrets. Existing configuration/database names are preserved. Run this setup on each new workstation. Never commit `.env`.
 
 Apply migrations and bootstrap the first real CEO account:
 
@@ -125,5 +125,6 @@ The restore drill creates a fresh recovery database and compares its migration r
 - [Implementation status](docs/IMPLEMENTATION_STATUS.md)
 - [Backup and recovery](docs/BACKUP_RECOVERY.md)
 - [Ubuntu deployment](docs/DEPLOYMENT.md)
+- [CEO email configuration](docs/EMAIL_CONFIGURATION.md)
 
 Campaigns, matching, opportunities, projects, notifications, and reports have explicit upcoming states. Partners/customers are filtered views of real organizations. No demo fixtures enter the application database.

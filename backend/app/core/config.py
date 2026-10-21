@@ -16,10 +16,20 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     session_hours: int = 8
     public_url: str = "http://127.0.0.1:5173"
+    smtp_encryption_key: SecretStr | None = None
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_security: str = "starttls"
+    smtp_sender_name: str = "NTECH EMS"
+    smtp_sender_email: str = ""
+    smtp_username: SecretStr = SecretStr("")
+    smtp_password: SecretStr = SecretStr("")
 
     @model_validator(mode="after")
     def validate_security(self):
         Fernet(self.mfa_encryption_key.get_secret_value().encode())
+        if self.smtp_encryption_key:
+            Fernet(self.smtp_encryption_key.get_secret_value().encode())
         if not self.database_url.get_secret_value().startswith("postgresql+psycopg://"):
             raise ValueError("PostgreSQL with the psycopg driver is required")
         if self.app_env == "production" and (not self.cookie_secure or not self.public_url.startswith("https://")):

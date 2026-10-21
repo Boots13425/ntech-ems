@@ -14,6 +14,24 @@ class Base(DeclarativeBase):
     pass
 
 
+class EmailConfiguration(Base):
+    __tablename__ = "email_configuration"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    host: Mapped[str] = mapped_column(String(253))
+    port: Mapped[int] = mapped_column(Integer)
+    security: Mapped[str] = mapped_column(String(10))
+    sender_name: Mapped[str] = mapped_column(String(150))
+    sender_email: Mapped[str] = mapped_column(String(254))
+    username_encrypted: Mapped[str | None] = mapped_column(Text)
+    password_encrypted: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_email_configuration_singleton"),
+        CheckConstraint("port BETWEEN 1 AND 65535", name="ck_email_configuration_port"),
+        CheckConstraint("security IN ('starttls', 'tls', 'none')", name="ck_email_configuration_security"),
+    )
+
+
 def association(name, left, right):
     tables = {"responsibility": "responsibilities"}
     return Table(name, Base.metadata,

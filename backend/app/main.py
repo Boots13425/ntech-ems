@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from app.api import auth, management, organizations
+from app.api import auth, management, organizations, email_configuration
 from app.core.config import get_settings
 from app.db.session import engine
 
@@ -90,12 +90,12 @@ def health():
             connection.execute(text("SELECT 1"))
             database = "ready"
             revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-            schema = "ready" if revision == "0001_foundation" else "migration_required"
+            schema = "ready" if revision == "0002_email_configuration" else "migration_required"
     except SQLAlchemyError:
         pass
     ready = database == schema == "ready"
     return JSONResponse(status_code=200 if ready else 503, content={"status": "ready" if ready else "not_ready", "application": "NTECH EMS", "version": "0.1.0", "database": database, "schema": schema})
 
 
-for router in [auth.router, organizations.router, management.router]:
+for router in [auth.router, organizations.router, management.router, email_configuration.router]:
     app.include_router(router, prefix="/api")

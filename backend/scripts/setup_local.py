@@ -1,6 +1,8 @@
 """Optional local PostgreSQL provisioning; never writes or prints admin credentials."""
 import os
+import getpass
 import secrets
+import sys
 from pathlib import Path
 
 import psycopg
@@ -15,7 +17,16 @@ def main():
         raise SystemExit("backend/.env already exists. Existing configuration was preserved.")
     password = secrets.token_urlsafe(40)
     # libpq reads PGHOST/PGPORT/PGUSER/PGPASSFILE; an optional DSN is read only from the environment.
-    with psycopg.connect(os.environ.get("ADMIN_DATABASE_URL", "host=127.0.0.1 dbname=postgres user=postgres"), autocommit=True) as connection:
+    admin_url = os.environ.get("ADMIN_DATABASE_URL", "host=127.0.0.1 dbname=postgres user=postgres")
+    try:
+        connection = psycopg.connect(admin_url, autocommit=True, connect_timeout=10)
+    except psycopg.OperationalError as error:
+        if "no password supplied" not in str(error) or not sys.stdin.isatty():
+            raise
+        password_admin = getpass.getpass("PostgreSQL administrator password: ")
+        connection = psycopg.connect(admin_url, password=password_admin, autocommit=True, connect_timeout=10)
+        del password_admin
+    with connection:
         if connection.execute("SELECT 1 FROM pg_roles WHERE rolname = 'ntech_ems'").fetchone():
             raise SystemExit("The ntech_ems database role exists. Configure .env manually; no existing role was changed.")
         if connection.execute("SELECT 1 FROM pg_database WHERE datname IN ('ntech_ems', 'ntech_ems_test')").fetchone():

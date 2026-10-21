@@ -18,6 +18,7 @@ from sqlalchemy.engine import make_url
 root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(root / "backend"))
 from app.core.config import Settings
+from smtp_test_server import smtp_sink
 
 
 def wait_ready(url, process):
@@ -90,8 +91,12 @@ def main():
                 frontend = subprocess.Popen(["node", str(root / "frontend/node_modules/vite/bin/vite.js"), "preview", "--host", "127.0.0.1", "--port", "4173", "--strictPort"], cwd=root / "frontend", env=environment, stdout=frontend_log, stderr=frontend_log, creationflags=flags)
                 processes.append(frontend)
                 wait_ready(base_url, frontend)
-            result = subprocess.run(["node", str(root / "frontend/node_modules/@playwright/test/cli.js"), "test", "--reporter=line"], cwd=root / "frontend", env=environment)
-            return result.returncode
+            with smtp_sink() as smtp:
+                environment["E2E_SMTP_PORT"] = str(smtp.server_address[1])
+                result = subprocess.run(["node", str(root / "frontend/node_modules/@playwright/test/cli.js"), "test", "--reporter=line"], cwd=root / "frontend", env=environment)
+                if result.returncode == 0 and not any(b"NTECH EMS test email" in message for message in smtp.messages):
+                    raise RuntimeError("Browser email test did not reach the local SMTP sink")
+                return result.returncode
     finally:
         try:
             for process in reversed(processes):

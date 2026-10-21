@@ -14,3 +14,7 @@ Not yet deployed or verified on an Ubuntu server. Requires a domain, server acce
 8. Verify HTTPS, readiness, MFA, permission boundaries, real organization/contact changes, mobile layout, installability, updates, and backup recovery on the actual server.
 
 Worker services, certificate issuance, firewall provisioning, automatic deployment, and scheduled/offsite backups are not performed by these templates.
+
+For SMTP setup, encryption-key handling, and the email configuration migration, see
+[Email Configuration](EMAIL_CONFIGURATION.md). Deploying this feature requires one
+backend restart; subsequent CEO configuration saves apply immediately.
