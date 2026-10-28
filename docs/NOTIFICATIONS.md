@@ -15,12 +15,19 @@ or account settings. Read state survives reloads and sign-ins.
 | Staff account created or its details/access changed | Affected active account only |
 | Role permissions changed | Active members of that role only |
 | Password changed | Account whose password changed only |
+| CEO resets a password | Affected staff account only |
 
 Approval/rejection notes remain in the campaign's approval history; the alert links
 there. Notifications never contain passwords, MFA secrets, email bodies, or
 credentials. This feature adds no browser push notifications or notification emails.
-There is no CEO password-reset endpoint in the current application; any future
-reset flow must address the affected account through the same notification service.
+The CEO can reset an active team member's password from Staff management using
+the Reset password button beside Edit. Creation and reset share the same server
+generator and copy dialog. Reset replaces the password hash, revokes all sessions,
+and requires a password change at next sign-in. Existing MFA stays enabled. The
+temporary password is returned only in the reset response; it is never placed in
+notifications or audit logs. A CEO changes their own password in account settings.
+This feature requires a backend restart and frontend rebuild, with no additional
+database migration beyond the existing notification schema.
 
 ## Enforcement
 

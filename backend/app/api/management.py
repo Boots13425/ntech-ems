@@ -1,4 +1,3 @@
-import secrets
 from typing import Annotated
 from uuid import UUID
 
@@ -8,7 +7,7 @@ from sqlalchemy import delete, func, select, text
 from app.api.dependencies import DB, require
 from app.api.organizations import scoped
 from app.core.permissions import effective_permissions
-from app.core.security import audit, hash_password
+from app.core.security import audit, set_temporary_password
 from app.models import AuditEvent, Classification, Organization, Permission, Responsibility, Role, Session, User
 from app.schemas import RolePermissions, StaffCreate, StaffUpdate
 from app.services.notifications import notify
@@ -56,13 +55,33 @@ def assign_access(db, user, role_name, names):
 
 @router.post("/staff", status_code=201)
 def create_staff(data: StaffCreate, db: DB, actor: Admin):
-    temporary_password = secrets.token_urlsafe(18)
-    user = User(full_name=data.full_name, email=str(data.email).casefold(), password_hash=hash_password(temporary_password), must_change_password=True)
+    user = User(full_name=data.full_name, email=str(data.email).casefold())
+    temporary_password = set_temporary_password(user)
     assign_access(db, user, data.role, data.responsibilities)
     db.add(user)
     db.flush()
     notify(db, user.id, "account.created", "Welcome to NTECH EMS", "Your staff account is ready. Review your account details in Settings.")
     audit(db, actor, "staff.created", entity_id=user.id)
+    db.commit()
+    return {**user_json(user), "temporary_password": temporary_password}
+
+
+@router.post("/staff/{user_id}/reset-password")
+def reset_staff_password(user_id: UUID, db: DB, actor: Admin):
+    if not any(role.name == "CEO" for role in actor.roles):
+        raise HTTPException(403, "Only the CEO can reset staff passwords")
+    if user_id == actor.id:
+        raise HTTPException(400, "Change your own password in account settings")
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if not user:
+        raise HTTPException(404, "Staff member not found")
+    if not user.is_active:
+        raise HTTPException(400, "Activate this account before resetting its password")
+    temporary_password = set_temporary_password(user)
+    db.execute(delete(Session).where(Session.user_id == user.id))
+    notify(db, user.id, "account.password_reset", "Your password was reset",
+           f"{actor.full_name} reset your password. Change the temporary password at sign-in.")
+    audit(db, actor, "staff.password_reset", entity_id=user.id)
     db.commit()
     return {**user_json(user), "temporary_password": temporary_password}
 

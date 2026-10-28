@@ -153,6 +153,25 @@ test('secure sign-in → MFA → organization/contact workflow → mobile → sa
   await staffSettings.getByRole('checkbox', { name: 'campaigns.read', exact: true }).uncheck()
   await staffSettings.getByRole('button', { name: 'Save Staff permissions', exact: true }).click()
   await expect(staffPage.getByRole('heading', { name: 'Access not assigned', exact: true })).toBeVisible({ timeout: 25000 })
+  // CEO recovery reuses the same generated-password dialog and copy button.
+  await page.goto('/staff')
+  await page.getByRole('button', { name: 'Reset password for Staff Verification', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Staff password reset', exact: true })).toBeVisible()
+  const temporaryPassword = await page.getByLabel('Temporary password', { exact: true }).inputValue()
+  if (await page.evaluate(() => window.isSecureContext)) {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  }
+  await page.getByRole('button', { name: 'Copy temporary password', exact: true }).click()
+  await expect(page.getByText('Password copied.', { exact: true })).toBeVisible()
+  if (await page.evaluate(() => window.isSecureContext)) {
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(temporaryPassword)
+  }
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+  expect((await staffPage.request.get('/api/auth/me')).status()).toBe(401)
+  expect((await staffPage.request.post('/api/auth/login', { data: { email: process.env.E2E_STAFF_EMAIL!, password: process.env.E2E_STAFF_PASSWORD! } })).status()).toBe(401)
+  const recovered = await staffPage.request.post('/api/auth/login', { data: { email: process.env.E2E_STAFF_EMAIL!, password: temporaryPassword } })
+  expect(recovered.ok()).toBe(true)
+  expect((await recovered.json()).must_change_password).toBe(true)
   await staffContext.close()
   await page.goto(campaignUrl)
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()

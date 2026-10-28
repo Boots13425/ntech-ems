@@ -25,6 +25,13 @@ def hash_password(password: str):
     return hasher.hash(password)
 
 
+def set_temporary_password(user: User):
+    password = secrets.token_urlsafe(18)
+    user.password_hash = hash_password(password)
+    user.must_change_password = True
+    return password
+
+
 def verify_password(password: str, encoded: str):
     try:
         return hasher.verify(encoded, password)
