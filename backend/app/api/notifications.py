@@ -2,11 +2,13 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import String, cast, func, literal, or_, select, update
 
 from app.api.dependencies import CurrentSession, DB
 from app.core.permissions import effective_permissions
 from app.models import Notification, User, utcnow
+from app.models import Opportunity
+from app.services.opportunities import scope
 
 router = APIRouter(prefix='/notifications', tags=['Notifications'])
 
@@ -27,6 +29,8 @@ def visible(actor):
                    Notification.required_permission.in_(effective_permissions(actor)))]
     if not any(role.name in ('CEO', 'Manager') for role in actor.roles):
         clauses.append(Notification.reviewer_only.is_(False))
+    opportunity_paths = scope(select(literal('/opportunities/') + cast(Opportunity.id, String)), actor)
+    clauses.append(or_(~Notification.kind.startswith('opportunity.'), Notification.path.in_(opportunity_paths)))
     return clauses
 
 

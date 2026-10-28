@@ -41,6 +41,7 @@ class TemplateInput(Content):
 
 
 class CampaignInput(Content):
+    opportunity_id: UUID | None = None
     name: str = Field(min_length=1, max_length=150)
     objective: Literal['Partnership', 'Customer Acquisition', 'General Outreach']
     description: str = Field(default='', max_length=5000)

@@ -1,5 +1,14 @@
 # Implementation status
 
+## Opportunities and follow-up work
+
+- Implemented: pipeline, estimates by currency, close date/loss reason, management-only owner assignment, staff-scoped work, task scheduling/completion, due/overdue notifications, and audit history.
+- Email stays in Campaigns: conversation conversion and linked composition reuse existing contacts, templates, preview, approval, queues, suppression, and reply handling.
+- Migration: `0006_opportunities`; the Staff role gains scoped Opportunities access. See `docs/OPPORTUNITIES.md`.
+- Verification: 79 backend tests passed; production build/typecheck and browser regression passed. Browser covered staff submission, management assignment, task completion, mobile layout, and returning from linked campaign composition. Fixed selector labels and linked-campaign cache refresh found during browser verification.
+- Local activation: migration applied and schema comparison clean; both existing 5200/8100 and 5202/8102 launchers restarted with their original ports. No sample opportunities or customer emails created.
+
+
 ## Private in-app notifications - 28 October 2026
 
 - Persistent recipient-specific inbox, unread badge/filter, pagination, single/all read actions, and campaign/settings navigation. Refreshes every 15 seconds.
@@ -28,7 +37,7 @@ Foundation scope, 20 October 2026. No fabricated business records or default cre
 
 - [x] Responsive React/TypeScript/Tailwind/shadcn interface, sidebar/drawer, profile, protected navigation.
 - [x] Dashboard, staff, organization/contact management, partner/customer filtered views, security settings.
-- [x] Honest upcoming states for opportunities, projects, reports; campaign module added above.
+- [x] Honest upcoming states for projects, reports; campaign module added above.
 - [x] PWA manifest/icons, public-asset-only worker, offline errors, install/update handling.
 - [x] PostgreSQL/Alembic models, real readiness, structured logs, sanitized errors.
 - [x] Argon2id, cookie sessions, mandatory TOTP, single-use recovery, CSRF/origins, throttling.
@@ -56,6 +65,6 @@ Screenshots of desktop/mobile dashboards and organization detail were visually i
 - Email activation/password-reset links and provider integration; activation is currently administrator controlled, with saved-code MFA recovery.
 - Advanced partner intelligence, customer requirements, eligibility/KNN, agreements.
 - OAuth-only incoming-mail provider adapters, advanced campaign analytics, distributed high-throughput workers.
-- Opportunities/finance, projects/tasks, reports/exports.
+- Finance, projects/delivery tasks, reports/exports.
 - Responsibility-permission editing UI, global audit viewer, archive recovery UI, history UI beyond recent 30 events.
 - Ubuntu production/TLS, scheduled/offsite backups, retention, monitoring, production recovery sign-off.

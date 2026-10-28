@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, Table, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Table, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -198,6 +199,7 @@ class EmailTemplate(Entity, Base):
 
 class EmailCampaign(Entity, Base):
     __tablename__ = "email_campaigns"
+    opportunity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('opportunities.id'), index=True)
     name: Mapped[str] = mapped_column(String(150))
     objective: Mapped[str] = mapped_column(String(40))
     description: Mapped[str] = mapped_column(Text, default="")
@@ -302,3 +304,42 @@ class Notification(Entity, Base):
         Index("ix_notifications_recipient_created", "recipient_id", "created_at", "id"),
         Index("ix_notifications_unread", "recipient_id", postgresql_where=read_at.is_(None)),
     )
+
+
+class Opportunity(Entity, Base):
+    __tablename__ = 'opportunities'
+    title: Mapped[str] = mapped_column(String(180))
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('organizations.id'), index=True)
+    creator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('users.id'), index=True)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('users.id'), index=True)
+    stage: Mapped[str] = mapped_column(String(20), default='new', index=True)
+    estimated_value: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    currency: Mapped[str] = mapped_column(String(3), default='XAF')
+    expected_close: Mapped[date | None] = mapped_column(Date)
+    loss_reason: Mapped[str] = mapped_column(String(1000), default='')
+    notes: Mapped[str] = mapped_column(Text, default='')
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    __table_args__ = (
+        CheckConstraint("stage IN ('new','qualified','proposal','negotiation','won','lost')", name='ck_opportunity_stage'),
+        CheckConstraint('estimated_value IS NULL OR estimated_value >= 0', name='ck_opportunity_value'),
+        CheckConstraint("stage != 'lost' OR length(trim(loss_reason)) > 0", name='ck_opportunity_loss_reason'),
+    )
+
+
+class OpportunitySource(Entity, Base):
+    __tablename__ = 'opportunity_sources'
+    opportunity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('opportunities.id'), index=True)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('email_campaigns.id'), index=True)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('campaign_recipients.id'), unique=True)
+
+
+class OpportunityTask(Entity, Base):
+    __tablename__ = 'opportunity_tasks'
+    opportunity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('opportunities.id'), index=True)
+    title: Mapped[str] = mapped_column(String(180))
+    notes: Mapped[str] = mapped_column(Text, default='')
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_notified: Mapped[bool] = mapped_column(Boolean, default=False)
+    overdue_notified: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)

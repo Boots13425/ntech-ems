@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Mail } from 'lucide-react'
@@ -14,8 +14,8 @@ type Content = { subject: string; body: string }
 type Step = Content & { days: number }
 type Template = Content & { id: string; name: string; category: string; status: string; creator_id: string }
 type Message = Content & { id: string; status?: string; due_at?: string; created_at: string; accepted_at?: string; error?: string; step?: number }
-type Recipient = { id: string; contact_id: string; email: string; organization: string; organization_id: string; outcome: string; stopped: boolean; variables: Record<string, string>; outgoing: Message[]; incoming: Message[] }
-type Campaign = Content & { id: string; name: string; objective: string; description: string; owner: string; owner_id: string; status: string; version: number; steps: Step[]; recipient_count: number; sent: number; replies: number; queued: number; failed: number; pending_followups: number; recipients: Recipient[]; issue?: string; approvals: { id: string; decision: string; note: string; created_at: string }[] }
+type Recipient = { opportunity_id?: string | null; id: string; contact_id: string; email: string; organization: string; organization_id: string; outcome: string; stopped: boolean; variables: Record<string, string>; outgoing: Message[]; incoming: Message[] }
+type Campaign = Content & { opportunity_id?: string | null; can_manage?: boolean; id: string; name: string; objective: string; description: string; owner: string; owner_id: string; status: string; version: number; steps: Step[]; recipient_count: number; sent: number; replies: number; queued: number; failed: number; pending_followups: number; recipients: Recipient[]; issue?: string; approvals: { id: string; decision: string; note: string; created_at: string }[] }
 type Contact = { id: string; full_name: string; job_title: string; email: string; recommended: boolean }
 type Org = { id: string; name: string; contacts: Contact[] }
 type Preview = Content & { missing: string[] }
@@ -65,7 +65,7 @@ export default function Campaigns() {
 
 function CampaignActions({ campaign: c, compact = false }: { campaign: Campaign; compact?: boolean }) {
   const manager = useOperations(), auth = useAuth(), client = useQueryClient()
-  const owns = c.owner_id === auth.user?.id
+  const owns = c.can_manage ?? c.owner_id === auth.user?.id
   const [note, setNote] = useState('')
   const mutation = useMutation({ mutationFn: (action: string) => send(`/campaigns/${c.id}/actions`, { action, version: c.version, note }), onSuccess: () => { toast.success('Campaign updated'); void client.invalidateQueries({ queryKey: ['campaigns'] }); void client.invalidateQueries({ queryKey: ['campaign', c.id] }) }, onError: e => toast.error(e.message) })
   const actions: [string, string][] = []
@@ -90,9 +90,10 @@ export function CampaignDetail() {
   if (query.isPending) return <Loading />
   if (query.error) return <ErrorState error={query.error} />
   const c = query.data
-  const canManage = manager || c.owner_id === auth.user?.id
+  const canManage = c.can_manage ?? (manager || c.owner_id === auth.user?.id)
   return <><Button asChild variant="ghost"><Link to="/campaigns">Back to campaigns</Link></Button><PageHeader title={c.name} description={`${c.objective} · ${c.owner} · ${label(c.status)}`} action={<CampaignActions campaign={c} />} />
     <ProcessingStatus />
+    {c.opportunity_id && auth.can('opportunities.read') && <Link className="mb-4 block text-sm text-primary underline" to={`/opportunities/${c.opportunity_id}`}>View linked opportunity</Link>}
     {c.status === 'paused' && <p className="mb-4 rounded-lg border bg-amber-50 p-4 text-sm">This campaign is paused. No queued initial emails or follow-ups will be sent. Replies are still checked and stop follow-ups. Resume keeps the original schedule, so overdue messages become eligible immediately.</p>}
     <p className="mb-4 text-sm">{c.queued} messages queued · {c.failed} failed or uncertain</p>
     {!canManage && <p className="mb-4 text-sm text-muted-foreground">You have read-only access to this campaign.</p>}
@@ -102,6 +103,7 @@ export function CampaignDetail() {
     <Input className="mb-4" aria-label="Search conversations" placeholder="Search by email, organization or outcome" value={search} onChange={e => setSearch(e.target.value)} />
     <div className="space-y-4">{c.recipients.filter(r => `${r.email} ${r.organization} ${r.outcome}`.toLowerCase().includes(search.toLowerCase())).map(r => <details key={r.id} className="panel p-5"><summary className="cursor-pointer break-words font-medium">{r.variables.contact_name} · {r.email} <span className="text-xs font-normal">— {label(r.outcome)}{r.stopped ? ' · Follow-ups stopped' : ''}</span></summary>
       <div className="mt-4 space-y-4"><Link className="text-sm text-primary underline" to={`/organizations/${r.organization_id}`}>{r.organization}</Link>
+        {auth.can('opportunities.read') && !['draft', 'pending_approval', 'approved', 'rejected'].includes(c.status) && <Button asChild size="sm" variant="outline"><Link to={r.opportunity_id ? `/opportunities/${r.opportunity_id}` : `/opportunities/new?organization_id=${r.organization_id}&source_recipient_id=${r.id}&organization=${encodeURIComponent(r.organization)}`}>{r.opportunity_id ? 'View opportunity' : 'Create opportunity from conversation'}</Link></Button>}
         {canManage && <label className="block max-w-sm text-sm">Record response and stop follow-ups<select aria-label={`Outcome for ${r.email}`} className={selectClass} value="" disabled={outcome.isPending} onChange={e => { if (e.target.value) outcome.mutate({ recipient: r.id, value: e.target.value }) }}><option value="">Choose outcome</option>{['replied', 'interested', 'not_interested', 'do_not_follow_up', 'requires_attention', 'do_not_contact'].map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>}
         {!r.outgoing.length && <p className="text-sm text-muted-foreground">No messages scheduled yet. Launch after approval.</p>}
         {[...r.outgoing.map(m => ({ ...m, direction: 'Outgoing', timestamp: m.accepted_at || m.due_at || m.created_at })), ...r.incoming.map(m => ({ ...m, direction: 'Reply', timestamp: m.created_at }))].sort((a, b) => a.timestamp.localeCompare(b.timestamp)).map(m => <article key={m.id} className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">{m.direction} · {m.status || 'received'} · {date(m.timestamp)}</p><h3 className="mt-2 font-medium">{m.subject}</h3><p className="mt-2 whitespace-pre-wrap break-words text-sm">{m.body}</p>{m.error && <p className="mt-2 text-sm text-red-700">{m.error}</p>}</article>)}
@@ -109,28 +111,31 @@ export function CampaignDetail() {
 }
 
 export function CampaignEditor() {
-  const { id } = useParams()
+  const { id } = useParams(), [params] = useSearchParams()
+  const opportunityId = params.get('opportunity_id')
   const manager = useOperations(), auth = useAuth()
+  const context = useQuery({ queryKey: ['campaign-contacts', '', opportunityId], queryFn: () => api<Org[]>(`/campaigns/contacts?opportunity_id=${opportunityId}`), enabled: !id && !!opportunityId })
   const query = useQuery({ queryKey: ['campaign', id], queryFn: () => api<Campaign>(`/campaigns/${id}`), enabled: !!id })
-  if (id && query.isPending) return <Loading />
+  if ((id && query.isPending) || (!id && opportunityId && context.isPending)) return <Loading />
+  if (!id && opportunityId && context.error) return <ErrorState error={context.error} />
   if (query.error) return <ErrorState error={query.error} />
-  if (query.data && !manager && query.data.owner_id !== auth.user?.id) return <section className="panel space-y-3 p-5"><p>You have read-only access to this campaign.</p><Link className="text-primary underline" to={`/campaigns/${id}`}>View campaign</Link></section>
-  return <CampaignForm key={id || 'new'} initial={query.data} />
+  if (query.data && !manager && !(query.data.can_manage ?? query.data.owner_id === auth.user?.id)) return <section className="panel space-y-3 p-5"><p>You have read-only access to this campaign.</p><Link className="text-primary underline" to={`/campaigns/${id}`}>View campaign</Link></section>
+  return <CampaignForm key={id || opportunityId || 'new'} initial={query.data} preset={opportunityId && !id ? context.data?.[0] : undefined} />
 }
-
-function CampaignForm({ initial }: { initial?: Campaign }) {
-  const navigate = useNavigate(), client = useQueryClient()
-  const [form, setForm] = useState({ name: initial?.name || '', objective: initial?.objective || 'Partnership', description: initial?.description || '', subject: initial?.subject || '', body: initial?.body || '', steps: initial?.steps || [] as Step[], contact_ids: initial?.recipients.map(r => r.contact_id).filter(Boolean) || [] as string[] })
+function CampaignForm({ initial, preset }: { initial?: Campaign; preset?: Org }) {
+  const navigate = useNavigate(), client = useQueryClient(), [params] = useSearchParams()
+  const opportunityId = initial?.opportunity_id || params.get('opportunity_id') || null
+  const [form, setForm] = useState({ name: initial?.name || '', objective: initial?.objective || 'Partnership', description: initial?.description || '', subject: initial?.subject || '', body: initial?.body || '', steps: initial?.steps || [] as Step[], contact_ids: initial?.recipients.map(r => r.contact_id).filter(Boolean) || (preset?.contacts.length ? [(preset.contacts.find(c => c.recommended) || preset.contacts[0]).id] : []) as string[] })
   const [search, setSearch] = useState(''), [previewContact, setPreviewContact] = useState('')
   const [preview, setPreview] = useState<Preview | null>(null)
-  const [selectedOrgs, setSelectedOrgs] = useState<Org[]>([])
+  const [selectedOrgs, setSelectedOrgs] = useState<Org[]>(preset ? [preset] : [])
   const templates = useQuery({ queryKey: ['templates'], queryFn: () => api<Template[]>('/campaigns/templates') })
-  const orgs = useQuery({ queryKey: ['campaign-contacts', search], queryFn: () => api<Org[]>(`/campaigns/contacts?q=${encodeURIComponent(search)}`) })
+  const orgs = useQuery({ queryKey: ['campaign-contacts', search, opportunityId], queryFn: () => api<Org[]>(`/campaigns/contacts?q=${encodeURIComponent(search)}${opportunityId ? `&opportunity_id=${opportunityId}` : ""}`) })
   const available = [...selectedOrgs, ...(orgs.data || []).filter(o => !selectedOrgs.some(s => s.id === o.id))]
   const selectedContacts = available.flatMap(o => o.contacts).filter(c => form.contact_ids.includes(c.id))
   const previewOptions = [...selectedContacts.map(c => ({ id: c.id, name: c.full_name })), ...(initial?.recipients || []).filter(r => form.contact_ids.includes(r.contact_id) && !selectedContacts.some(c => c.id === r.contact_id)).map(r => ({ id: r.contact_id, name: r.email }))]
   const save = useMutation({ mutationFn: async (action: string) => {
-    const c = await send<Campaign>(initial ? `/campaigns/${initial.id}` : '/campaigns', { ...form, version: initial?.version }, initial ? 'PUT' : 'POST')
+    const c = await send<Campaign>(initial ? `/campaigns/${initial.id}` : '/campaigns', { ...form, opportunity_id: opportunityId, version: initial?.version }, initial ? 'PUT' : 'POST')
     // Complete the transition before mounting detail, avoiding a concurrent draft fetch.
     try {
       if (action !== 'save') await send(`/campaigns/${c.id}/actions`, { action, version: c.version })
@@ -139,8 +144,8 @@ function CampaignForm({ initial }: { initial?: Campaign }) {
       navigate(`/campaigns/${c.id}`)
     }
     return c
-  }, onSuccess: () => { void client.invalidateQueries({ queryKey: ['campaigns'] }); void client.invalidateQueries({ queryKey: ['campaign'] }); toast.success('Campaign saved') }, onError: e => toast.error(e.message) })
-  const previewMutation = useMutation({ mutationFn: () => send<Preview>('/campaigns/preview', { subject: form.subject, body: form.body, contact_id: previewContact }), onSuccess: setPreview, onError: e => toast.error(e.message) })
+  }, onSuccess: () => { void client.invalidateQueries({ queryKey: ['opportunities'] }); void client.invalidateQueries({ queryKey: ['campaigns'] }); void client.invalidateQueries({ queryKey: ['campaign'] }); toast.success('Campaign saved') }, onError: e => toast.error(e.message) })
+  const previewMutation = useMutation({ mutationFn: () => send<Preview>('/campaigns/preview', { subject: form.subject, body: form.body, contact_id: previewContact, opportunity_id: opportunityId }), onSuccess: setPreview, onError: e => toast.error(e.message) })
   function chooseOrg(org: Org) {
     if (selectedOrgs.some(o => o.id === org.id)) {
       setSelectedOrgs(selectedOrgs.filter(o => o.id !== org.id)); setForm({ ...form, contact_ids: form.contact_ids.filter(id => !org.contacts.some(c => c.id === id)) })
@@ -149,7 +154,7 @@ function CampaignForm({ initial }: { initial?: Campaign }) {
       if (first) setForm({ ...form, contact_ids: [...new Set([...form.contact_ids, first.id])] })
     }
   }
-  return <><PageHeader title={initial ? 'Edit campaign' : 'Create campaign'} description="Choose recipients deliberately, personalize your message, and submit it for approval." /><form onSubmit={e => { e.preventDefault(); save.mutate('save') }} className="space-y-5"><fieldset disabled={save.isPending} className="space-y-5">
+  return <><PageHeader title={initial ? 'Edit campaign' : 'Create campaign'} description="Choose recipients deliberately, personalize your message, and submit it for approval." />{opportunityId && <p className="mb-4 text-sm">Email for an opportunity. <Link className="text-primary underline" to={`/opportunities/${opportunityId}`}>Back to opportunity</Link></p>}<form onSubmit={e => { e.preventDefault(); save.mutate('save') }} className="space-y-5"><fieldset disabled={save.isPending} className="space-y-5">
     <section className="panel space-y-4 p-5"><h2 className="font-semibold">1. Campaign details</h2><label className="block text-sm">Campaign name<Input required maxLength={150} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label><label className="block text-sm">Objective<select className={selectClass} value={form.objective} onChange={e => setForm({ ...form, objective: e.target.value })}>{['Partnership', 'Customer Acquisition', 'General Outreach'].map(v => <option key={v}>{v}</option>)}</select></label><label className="block text-sm">Description<Textarea maxLength={5000} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label></section>
     <section className="panel space-y-4 p-5"><h2 className="font-semibold">2. Recipients ({form.contact_ids.length} selected)</h2><p className="text-xs text-muted-foreground">Selecting an organization chooses one recommended contact. Select additional contacts only when appropriate.</p><Input aria-label="Search organizations" placeholder="Search existing organizations" value={search} onChange={e => setSearch(e.target.value)} />
       {orgs.error && <ErrorState error={orgs.error} />}{orgs.isPending && <p className="text-sm">Loading contacts…</p>}

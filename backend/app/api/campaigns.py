@@ -11,7 +11,8 @@ from app.api.organizations import get_organization, scoped
 from app.core.permissions import effective_permissions
 from app.core.security import audit
 from app.models import (EmailTemplate, EmailCampaign, CampaignRecipient, CampaignApproval, OutboundEmail,
-                        InboundEmail, EmailSuppression, MailboxSyncState, CampaignWorkerState, Contact, Organization, User, utcnow)
+                        Opportunity, OpportunitySource, InboundEmail, EmailSuppression, MailboxSyncState, CampaignWorkerState, Contact, Organization, User, utcnow)
+from app.services.opportunities import get_opportunity, scope as opportunity_scope
 from app.services.notifications import campaign_event
 from app.services.campaign_runtime import wake_worker
 from app.services.campaigns import (VARIABLES, Content, TemplateInput, CampaignInput, render, variables_for,
@@ -34,7 +35,9 @@ def get_campaign(db, actor, id, write=False):
     row = db.get(EmailCampaign, id)
     if not row:
         raise HTTPException(404, 'Campaign not found')
-    if write and not manager(actor) and row.owner_id != actor.id:
+    if write and row.opportunity_id:
+        get_opportunity(db, actor, row.opportunity_id, write=True)
+    if write and not row.opportunity_id and not manager(actor) and row.owner_id != actor.id:
         raise HTTPException(403, 'You can view this campaign, but only its owner or a manager can change it')
     return row
 
@@ -83,14 +86,20 @@ def edit_template(id: UUID, data: TemplateInput, db: DB, actor: Actor):
 
 
 @router.get('/contacts')
-def contacts(db: DB, actor: Actor, q: str = Query(default='', max_length=180)):
-    orgs = db.scalars(scoped(select(Organization).where(Organization.name.icontains(q, autoescape=True)), actor).order_by(Organization.name).limit(50))
+def contacts(db: DB, actor: Actor, q: str = Query(default='', max_length=180), opportunity_id: UUID | None = None):
+    if opportunity_id:
+        opportunity = get_opportunity(db, actor, opportunity_id, write=True)
+        query = select(Organization).where(Organization.id == opportunity.organization_id, Organization.is_archived.is_(False))
+    else:
+        query = scoped(select(Organization).where(Organization.name.icontains(q, autoescape=True)), actor)
+    orgs = db.scalars(query.order_by(Organization.name).limit(50))
     return [dict(id=o.id, name=o.name, contacts=[dict(id=c.id, full_name=c.full_name, job_title=c.job_title,
         email=c.email, recommended=c.is_primary or any(word in (c.job_title or '').lower() for word in ('director', 'manager', 'partnership', 'procurement', 'ceo')))
         for c in o.contacts if c.email]) for o in orgs]
 
 
 class PreviewInput(Content):
+    opportunity_id: UUID | None = None
     contact_id: UUID
 
 
@@ -99,7 +108,12 @@ def preview(data: PreviewInput, db: DB, actor: Actor):
     contact = db.get(Contact, data.contact_id)
     if not contact:
         raise HTTPException(404, 'Contact not found')
-    get_organization(db, actor, contact.organization_id)
+    if data.opportunity_id:
+        opportunity = get_opportunity(db, actor, data.opportunity_id, write=True)
+        if contact.organization_id != opportunity.organization_id or contact.organization.is_archived:
+            raise HTTPException(403, 'Contact is outside this opportunity')
+    else:
+        get_organization(db, actor, contact.organization_id)
     variables = variables_for(contact, actor)
     subject, sm = render(data.subject, variables)
     body, bm = render(data.body, variables)
@@ -151,6 +165,11 @@ def runtime(db: DB, actor: Actor):
 
 
 def apply_campaign(db, actor, row, data):
+    if row.opportunity_id and data.opportunity_id != row.opportunity_id:
+        raise HTTPException(422, 'The linked opportunity cannot be changed')
+    opportunity = get_opportunity(db, actor, data.opportunity_id, write=True) if data.opportunity_id else None
+    if opportunity and opportunity.stage in ('won', 'lost'):
+        raise HTTPException(409, 'Reopen the opportunity before starting outreach')
     if len(set(data.contact_ids)) != len(data.contact_ids):
         raise HTTPException(422, 'Duplicate contacts are not allowed')
     selected = []
@@ -158,7 +177,11 @@ def apply_campaign(db, actor, row, data):
         contact = db.get(Contact, id)
         if not contact or not contact.email:
             raise HTTPException(422, 'Select contacts with email addresses')
-        get_organization(db, actor, contact.organization_id)
+        if opportunity:
+            if contact.organization_id != opportunity.organization_id or contact.organization.is_archived:
+                raise HTTPException(403, 'Recipients must belong to the opportunity organization')
+        else:
+            get_organization(db, actor, contact.organization_id)
         selected.append(contact)
     if len({c.email.lower() for c in selected}) != len(selected):
         raise HTTPException(422, 'Choose only one contact per email address')
@@ -204,7 +227,13 @@ def edit_campaign(id: UUID, data: CampaignInput, db: DB, actor: Actor):
 def detail(id: UUID, db: DB, actor: Actor):
     row = get_campaign(db, actor, id)
     result = summary(db, row)
+    if row.opportunity_id:
+        result['can_manage'] = 'opportunities.read' in effective_permissions(actor) and (
+            manager(actor) or db.get(Opportunity, row.opportunity_id).owner_id == actor.id)
+    else:
+        result['can_manage'] = manager(actor) or row.owner_id == actor.id
     result['recipients'] = [dict(**record(r), organization=db.get(Organization, r.organization_id).name,
+        opportunity_id=db.scalar(opportunity_scope(select(Opportunity.id).join(OpportunitySource).where(OpportunitySource.recipient_id == r.id), actor)) if 'opportunities.read' in effective_permissions(actor) else None,
         outgoing=[record(m) for m in db.scalars(select(OutboundEmail).where(OutboundEmail.recipient_id == r.id).order_by(OutboundEmail.step))],
         incoming=[record(m) for m in db.scalars(select(InboundEmail).where(InboundEmail.recipient_id == r.id).order_by(InboundEmail.created_at))]) for r in recipients(db, row)]
     result['approvals'] = [record(a) for a in db.scalars(select(CampaignApproval).where(CampaignApproval.campaign_id == id).order_by(CampaignApproval.created_at))]

@@ -11,7 +11,7 @@ PERMISSIONS = [
 ROLE_DEFAULTS = {
     "CEO": PERMISSIONS,
     "Manager": [p for p in PERMISSIONS if p not in {"access.manage", "staff.manage"}],
-    "Staff": ["dashboard.read", "campaigns.read"],
+    "Staff": ["dashboard.read", "campaigns.read", "opportunities.read"],
 }
 RESPONSIBILITY_DEFAULTS = {
     "Business Development": ["organizations.read", "organizations.create", "organizations.update", "contacts.write", "customers.read", "opportunities.read"],

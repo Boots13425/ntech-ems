@@ -127,5 +127,6 @@ The restore drill creates a fresh recovery database and compares its migration r
 - [Ubuntu deployment](docs/DEPLOYMENT.md)
 - [CEO email configuration](docs/EMAIL_CONFIGURATION.md)
 - [Private in-app notifications](docs/NOTIFICATIONS.md)
+- [Opportunities and follow-up tasks](docs/OPPORTUNITIES.md)
 
-Matching, opportunities, projects, and reports have explicit upcoming states. Campaigns and private in-app notifications are implemented. Partners/customers are filtered views of real organizations. No demo fixtures enter the application database.
+Matching, projects, and reports have explicit upcoming states. Campaigns, opportunities with follow-up tasks, and private in-app notifications are implemented. Partners/customers are filtered views of real organizations. No demo fixtures enter the application database.

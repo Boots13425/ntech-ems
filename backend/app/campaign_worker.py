@@ -20,7 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.db.session import engine
 from app.core.security import audit
-from app.services.notifications import notify
+from app.services.notifications import campaign_reply
+from app.services.opportunities import remind_tasks
 from app.models import (EmailConfiguration, EmailCampaign, CampaignRecipient, OutboundEmail, InboundEmail,
                         MailboxSyncState, CampaignWorkerState, Contact, AuditEvent, utcnow)
 from app.services.email_configuration import decrypt
@@ -84,9 +85,7 @@ def ingest(db, raw, key, sender_email=None):
     if sender == recipient.email and re.search(r'(?i)\b(unsubscribe|remove me|do not contact|stop emailing|stop contacting)\b', str(message.get('Subject', '')) + '\n' + new_text):
         suppress_address(db, recipient.email, 'Opt-out received by email')
     campaign = db.get(EmailCampaign, recipient.campaign_id)
-    notify(db, campaign.owner_id, 'campaign.reply', 'New campaign response',
-           f'A response was received for "{campaign.name}". Open the campaign to review it.',
-           path=f'/campaigns/{campaign.id}', permission='campaigns.read')
+    campaign_reply(db, campaign, recipient)
     audit(db, None, 'campaign.reply_received', 'contact', recipient.contact_id, recipient.organization_id)
 
 
@@ -314,6 +313,8 @@ def tick():
                 state.last_heartbeat, state.phase, state.error = utcnow(), 'sending', None
                 db.commit()
                 try:
+                    remind_tasks(db)
+                    db.commit()
                     config = db.get(EmailConfiguration, 1)
                     # Initial outreach should not wait for a large historical inbox scan.
                     process_one(db, config, initial_only=True)
