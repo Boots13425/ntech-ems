@@ -164,3 +164,26 @@ def test_migration_includes_existing_pending_campaigns(client):
         assert len(rows) == 1
         assert str(rows[0].recipient_id) == reviewer
         assert rows[0].path == f'/campaigns/{campaign["id"]}'
+
+
+def test_recover_missing_alerts_reuses_recipients_without_duplicates(client):
+    from datetime import timedelta
+    from sqlalchemy import delete
+    from app.models import utcnow, EmailCampaign
+    from scripts.recover_campaign_notifications import recover
+
+    since = utcnow() - timedelta(minutes=1)
+    campaign, *_ = setup(client, role='Staff')
+    reviewer, _ = create_user('reviewer@example.org', 'CEO')
+    assert act(client, campaign, 'submit').status_code == 200
+    with SessionLocal() as db:
+        until = utcnow()
+        assert recover(db, since, until) == 0
+        db.execute(delete(Notification).where(Notification.recipient_id == UUID(reviewer)))
+        db.commit()
+        assert recover(db, since, until) == 1
+        db.commit()
+        assert recover(db, since, until) == 0
+        rows = db.scalars(select(Notification)).all()
+        assert len(rows) == 1 and str(rows[0].recipient_id) == reviewer
+        assert db.get(EmailCampaign, UUID(campaign['id'])).status == 'pending_approval'

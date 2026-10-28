@@ -6,10 +6,20 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useAuth } from '@/features/auth/auth-context'
-import { api, send } from '@/lib/api'
+import { api, ApiError, send } from '@/lib/api'
 
 type Notification = { id: string; title: string; message: string; path: string; created_at: string; read_at: string | null }
 type Inbox = { items: Notification[]; unread_count: number; total: number; page: number; page_size: number }
+
+async function loadInbox(path: string) {
+  try { return await api<Inbox>(path) }
+  catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      throw new Error('The running server needs an update to load notifications. Ask your administrator to restart the EMS backend.')
+    }
+    throw error
+  }
+}
 
 export function Notifications() {
   const { user } = useAuth()
@@ -20,8 +30,8 @@ export function Notifications() {
   const [unreadOnly, setUnreadOnly] = useState(false)
   const scope = ['notifications', user!.id, user!.roles.join(','), [...user!.permissions].sort().join(',')]
   // The count always covers the entire inbox, independently of pagination/filter.
-  const count = useQuery({ queryKey: [...scope, 'count'], queryFn: () => api<Inbox>('/notifications?page_size=1'), refetchInterval: 15_000 })
-  const inbox = useQuery({ queryKey: [...scope, page, unreadOnly], queryFn: () => api<Inbox>(`/notifications?page=${page}&unread_only=${unreadOnly}`), enabled: open, refetchInterval: 15_000 })
+  const count = useQuery({ queryKey: [...scope, 'count'], queryFn: () => loadInbox('/notifications?page_size=1'), refetchInterval: 15_000 })
+  const inbox = useQuery({ queryKey: [...scope, page, unreadOnly], queryFn: () => loadInbox(`/notifications?page=${page}&unread_only=${unreadOnly}`), enabled: open, refetchInterval: 15_000 })
   const mark = useMutation({
     mutationFn: (id: string | null) => send(id ? `/notifications/${id}/read` : '/notifications/read-all'),
     onSuccess: () => { void client.invalidateQueries({ queryKey: ['notifications'] }) },
@@ -38,6 +48,7 @@ export function Notifications() {
   return <Dialog open={open} onOpenChange={value => { setOpen(value); if (value) { setPage(1); void count.refetch() } }}>
     <DialogTrigger asChild><Button variant="ghost" size="icon" className="relative" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}>
       <Bell className="size-[18px] text-slate-500" />
+      {count.isError && <span role="status" aria-label="Notifications unavailable" title="Notifications could not be loaded. Open for details." className="absolute -right-1 -top-1 rounded-full bg-amber-600 px-1.5 text-[10px] text-white">!</span>}
       {unread > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 text-[10px] text-white" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
     </Button></DialogTrigger>
     <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">

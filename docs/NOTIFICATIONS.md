@@ -75,3 +75,27 @@ Pop-Location
 The browser harness uses disposable accounts and the test database. It covers staff
 submission, reviewer notification navigation and approval, owner notification,
 mark-all-read, and persisted history after reload.
+
+## Missing alerts after an update
+
+A frontend update does not reload an already-running Python backend. Check
+`/api/health` and `/api/notifications` through the same frontend URL the user opens.
+An unauthenticated notification request should return 401, not 404. A 404 means
+that instance does not have the notification routes loaded; restart its existing
+launcher with the same frontend/API ports. Multiple LAN launchers can otherwise
+serve different backend versions against the same database.
+
+The bell displays an unavailable indicator if polling fails instead of silently
+showing no unread alerts. Opening it shows the error and a retry button.
+
+For an incident where an old process recorded campaign events but missed alerts,
+`backend/scripts/recover_campaign_notifications.py` reuses the recipient rules to
+recover submission/approval/rejection alerts within an explicit timezone-aware
+`--since`/`--until` interval. It previews by default; `--apply` commits. Existing
+recipient/kind/campaign alerts are preserved, so rerunning is safe. It restores
+at most one alert per recipient/kind/campaign, not a full historical event stream.
+Campaign states and email delivery are unchanged.
+
+On 28 October 2026 the old 5200/8100 instance had no notification routes while
+5202/8102 had the updated routes. The 5200 instance was restarted using its existing
+ports; four missing alerts were recovered (two CEO submissions, two owner approvals).
