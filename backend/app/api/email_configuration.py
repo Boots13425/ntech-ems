@@ -7,7 +7,7 @@ from app.api.dependencies import DB, require
 from app.core.config import get_settings
 from app.core.security import audit, rate_limit
 from app.models import EmailConfiguration, User
-from app.services.email_configuration import ConfigurationInput, TestEmailInput, encrypt, public_configuration, run_smtp
+from app.services.email_configuration import ConfigurationInput, TestEmailInput, encrypt, decrypt, public_configuration, run_smtp
 
 router = APIRouter(prefix="/settings/email", tags=["Email configuration"])
 
@@ -57,6 +57,18 @@ def save_configuration(data: ConfigurationInput, db: DB, actor: CEO):
     for field in ("host", "port", "security", "sender_name", "sender_email"):
         setattr(row, field, str(getattr(data, field)) if field == "sender_email" else getattr(data, field))
     row.username_encrypted = encrypt(data.username)
+    incoming_password = data.imap_password.get_secret_value() if data.imap_password else ''
+    if data.clear_imap_password:
+        row.imap_password_encrypted = None
+    elif incoming_password:
+        row.imap_password_encrypted = encrypt(incoming_password)
+    elif data.imap_username != (decrypt(row.imap_username_encrypted) if row.imap_username_encrypted else '') and data.imap_username:
+        raise HTTPException(422, 'Enter an incoming password when changing the incoming username')
+    if data.imap_host and (not data.imap_username or not row.imap_password_encrypted):
+        raise HTTPException(422, 'Incoming mailbox requires a username and password')
+    row.imap_host, row.imap_port = data.imap_host or None, data.imap_port
+    row.imap_username_encrypted = encrypt(data.imap_username)
+    row.hourly_limit = data.hourly_limit
     audit(db, actor, "email.configuration_updated", "email_configuration", changed_fields=changed)
     db.commit()
     return public_configuration(db)

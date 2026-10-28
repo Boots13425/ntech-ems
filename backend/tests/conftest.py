@@ -17,6 +17,7 @@ if not (make_url(test_url).database or "").endswith("_test") or test_url == conf
     raise RuntimeError("Tests require a separate database with a name ending in _test")
 os.environ["DATABASE_URL"] = test_url
 os.environ["COOKIE_SECURE"] = "false"
+os.environ["CAMPAIGN_WORKER_ENABLED"] = "false"
 
 from fastapi.testclient import TestClient
 from app.core.config import get_settings

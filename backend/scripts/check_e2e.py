@@ -68,12 +68,18 @@ def main():
     clean()
     password = secrets.token_urlsafe(30)
     email = f"browser-{secrets.token_hex(6)}@example.org"
+    staff_password = secrets.token_urlsafe(30)
+    staff_email = f"browser-staff-{secrets.token_hex(6)}@example.org"
     with SessionLocal() as db:
         seed_access(db)
         db.add(User(full_name="Workspace Verification", email=email, password_hash=hash_password(password), roles=[db.scalar(select(Role).where(Role.name == "CEO"))]))
+        staff_role = db.scalar(select(Role).where(Role.name == 'Staff'))
+        staff_role.permissions = [p for p in staff_role.permissions if p.code != 'campaigns.read']
+        db.add(User(full_name='Staff Verification', email=staff_email, password_hash=hash_password(staff_password), roles=[staff_role]))
         db.commit()
     environment = os.environ.copy()
-    environment.update(E2E_EMAIL=email, E2E_PASSWORD=password, COOKIE_SECURE="false", API_PROXY_TARGET="http://127.0.0.1:8001", E2E_BASE_URL=base_url)
+    environment.update(E2E_EMAIL=email, E2E_PASSWORD=password, COOKIE_SECURE="false", API_PROXY_TARGET="http://127.0.0.1:8001", E2E_BASE_URL=base_url, CAMPAIGN_WORKER_ENABLED="false")
+    environment.update(E2E_STAFF_EMAIL=staff_email, E2E_STAFF_PASSWORD=staff_password)
     log_dir = root / ".verification"
     log_dir.mkdir(exist_ok=True)
     processes = []

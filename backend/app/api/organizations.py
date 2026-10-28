@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, update, text
 
 from app.api.dependencies import DB, require
 from app.core.permissions import effective_permissions
@@ -99,6 +99,7 @@ def organization_detail(organization_id: UUID, db: DB, user: ReadUser):
 
 @router.put("/{organization_id}")
 def edit_organization(organization_id: UUID, data: OrganizationInput, db: DB, user: WriteUser):
+    db.execute(text('SELECT pg_advisory_xact_lock(98171623)'))
     org = get_organization(db, user, organization_id)
     apply_organization(db, user, org, data)
     audit(db, user, "organization.updated", "organization", org.id, org.id, name=org.name)
@@ -108,6 +109,7 @@ def edit_organization(organization_id: UUID, data: OrganizationInput, db: DB, us
 
 @router.delete("/{organization_id}", status_code=204)
 def archive_organization(organization_id: UUID, db: DB, user: WriteUser):
+    db.execute(text('SELECT pg_advisory_xact_lock(98171623)'))
     org = get_organization(db, user, organization_id)
     org.is_archived = True
     audit(db, user, "organization.archived", "organization", org.id, org.id, name=org.name)
@@ -123,6 +125,7 @@ def activity(organization_id: UUID, db: DB, user: ReadUser, page: int = Query(de
 
 
 def save_contact(db, user, org, data, contact=None):
+    db.execute(text('SELECT pg_advisory_xact_lock(98171623)'))
     if data.is_primary:
         db.execute(update(Contact).where(Contact.organization_id == org.id).values(is_primary=False))
     is_new = contact is None
@@ -154,6 +157,7 @@ def edit_contact(organization_id: UUID, contact_id: UUID, data: ContactInput, db
 
 @router.delete("/{organization_id}/contacts/{contact_id}", status_code=204)
 def delete_contact(organization_id: UUID, contact_id: UUID, db: DB, user: ContactUser):
+    db.execute(text('SELECT pg_advisory_xact_lock(98171623)'))
     org = get_organization(db, user, organization_id)
     contact = db.scalar(select(Contact).where(Contact.id == contact_id, Contact.organization_id == org.id))
     if not contact:

@@ -2,6 +2,7 @@ import json
 import logging
 import time
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -11,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from app.api import auth, management, organizations, email_configuration
+from app.api import auth, management, organizations, email_configuration, campaigns
 from app.core.config import get_settings
 from app.db.session import engine
 
@@ -31,8 +32,14 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app):
-    yield
-    engine.dispose()
+    from app.services.campaign_runtime import start_worker
+    worker = start_worker() if settings.campaign_worker_enabled else None
+    try:
+        yield
+    finally:
+        if worker:
+            await asyncio.to_thread(worker.stop)
+        engine.dispose()
 
 
 app = FastAPI(title="NTECH EMS API", version="0.1.0", lifespan=lifespan,
@@ -90,12 +97,12 @@ def health():
             connection.execute(text("SELECT 1"))
             database = "ready"
             revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-            schema = "ready" if revision == "0002_email_configuration" else "migration_required"
+            schema = "ready" if revision == "0004_campaign_runtime" else "migration_required"
     except SQLAlchemyError:
         pass
     ready = database == schema == "ready"
     return JSONResponse(status_code=200 if ready else 503, content={"status": "ready" if ready else "not_ready", "application": "NTECH EMS", "version": "0.1.0", "database": database, "schema": schema})
 
 
-for router in [auth.router, organizations.router, management.router, email_configuration.router]:
+for router in [auth.router, organizations.router, management.router, email_configuration.router, campaigns.router]:
     app.include_router(router, prefix="/api")

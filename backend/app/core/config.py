@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     session_hours: int = 8
     public_url: str = "http://127.0.0.1:5173"
+    campaign_worker_enabled: bool = True
     smtp_encryption_key: SecretStr | None = None
     smtp_host: str = ""
     smtp_port: int = 587

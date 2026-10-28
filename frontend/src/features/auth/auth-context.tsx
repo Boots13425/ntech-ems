@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, send } from '@/lib/api'
 import type { User } from '@/types'
@@ -8,7 +8,15 @@ const Context = createContext<Auth | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient()
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
-  const query = useQuery({ queryKey: ['me'], queryFn: async () => { try { return await api<User>('/auth/me') } catch (error) { if (error instanceof ApiError && error.status === 401) return null; throw error } }, retry: false, staleTime: 30_000 })
+  const query = useQuery({ queryKey: ['me'], queryFn: async () => { try { return await api<User>('/auth/me') } catch (error) { if (error instanceof ApiError && error.status === 401) return null; throw error } }, retry: false, staleTime: 10_000, refetchInterval: 15_000 })
+  const permissions = query.data?.permissions.slice().sort().join(',')
+  const previousPermissions = useRef(permissions)
+  useEffect(() => {
+    if (previousPermissions.current !== undefined && previousPermissions.current !== permissions) {
+      void client.invalidateQueries({ predicate: item => item.queryKey[0] !== 'me' })
+    }
+    previousPermissions.current = permissions
+  }, [client, permissions])
   const setUser = (user: User | null) => { client.removeQueries({ predicate: query => query.queryKey[0] !== 'me' }); client.setQueryData(['me'], user) }
   useEffect(() => { const expired = () => { setRecoveryCodes([]); client.removeQueries({ predicate: query => query.queryKey[0] !== 'me' }); client.setQueryData(['me'], null) }; window.addEventListener('session-expired', expired); return () => window.removeEventListener('session-expired', expired) }, [client])
   return <Context.Provider value={{ user: query.data, loading: query.isPending, error: query.error, can: p => query.data?.permissions.includes(p) ?? false, setUser,

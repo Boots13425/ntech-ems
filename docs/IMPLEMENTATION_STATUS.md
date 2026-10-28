@@ -1,12 +1,25 @@
 # Implementation status
 
+## Email campaigns — 22 October 2026
+
+- Implemented: PostgreSQL campaign/template/recipient/approval/outbound/inbound/suppression/sync records; scoped APIs, strict personalization, approvals, durable sending, threaded follow-ups, IMAP synchronization, manual outcomes and suppression. React overview/editor/templates/details and CEO incoming-mail settings are integrated.
+- Modified: campaign models/API/services/worker, automatic API-owned runner (`services/campaign_runtime.py`), migrations `0003_campaigns`/`0004_campaign_runtime`, auth permission refresh, campaign UI health/queue indicators, settings/routes, LAN startup message, browser/test harness and operating guide.
+- Delivery repair: API startup now starts the worker automatically; launch/resume wakes it. Added persisted heartbeat and visible processing/mailbox health. Existing approved-but-unlaunched campaigns remain unsent. Pause holds initial emails and follow-ups while reply synchronization continues; resume preserves original due dates.
+- Access repair: `campaigns.read` grants company campaign/history viewing. Staff cannot change another employee's campaign; editing and launch remain owner/manager restricted. Browser permissions refresh within 15 seconds. Browser test verifies CEO granting/revoking Staff campaign reading without signing in again.
+- Gmail repair: live diagnostics found the actual reply at INBOX UID 7797 behind a scanner stuck at UID 3194. Scanner now uses the campaign date window, batched headers and relevant bodies only, discovers localized Gmail All Mail via `\All`, and excludes own sent messages. Versioned cursor replay safely recovered the existing response without duplicating messages.
+- Verified: full backend regression passed 55 tests, then expanded campaign tests passed all 24 (57 distinct tests across runs); production build passed. Full browser regression including Staff grant/read/revoke passed in 49.8 seconds, alongside campaign, settings/local SMTP sink, MFA, organization/contact, mobile and offline flows. Test database records cleaned up. Production/test schemas migrated to `0004_campaign_runtime`.
+- Live evidence: EMS restarted at port 5200/API 8100 with automatic worker. Gmail sync caught up (UID 8610 at first verification), error cleared and heartbeat healthy. `Requesting for the partnership` has 1 recorded reply and recipient outcome `replied`; `ANOTHER REQUEST` has no matched reply and retains its scheduled follow-up. Existing outgoing counts remain 2 accepted and 1 queued; no extra test campaign was created or sent.
+- Integration limits: IMAP password/app-password authentication; Gmail All Mail and generic-provider INBOX supported. HTML-only content is flagged for mailbox review; attachments are not processed. Actual future follow-up timing is exercised with isolated tests, not by accelerating the user's live schedule.
+- Operating guide: `docs/EMAIL_CAMPAIGNS.md`. Normal API startup includes delivery and reply checking. Optional standalone service is for deployments with `CAMPAIGN_WORKER_ENABLED=false` on the API.
+- Next: no implementation blocker; normal operation will check new Gmail replies and send eligible scheduled follow-ups automatically while the server runs.
+
 Foundation scope, 20 October 2026. No fabricated business records or default credentials are installed.
 
 ## Implemented
 
 - [x] Responsive React/TypeScript/Tailwind/shadcn interface, sidebar/drawer, profile, protected navigation.
 - [x] Dashboard, staff, organization/contact management, partner/customer filtered views, security settings.
-- [x] Honest upcoming states for campaigns, opportunities, projects, reports, notifications.
+- [x] Honest upcoming states for opportunities, projects, reports, notifications; campaign module added above.
 - [x] PWA manifest/icons, public-asset-only worker, offline errors, install/update handling.
 - [x] PostgreSQL/Alembic models, real readiness, structured logs, sanitized errors.
 - [x] Argon2id, cookie sessions, mandatory TOTP, single-use recovery, CSRF/origins, throttling.
@@ -33,7 +46,7 @@ Screenshots of desktop/mobile dashboards and organization detail were visually i
 
 - Email activation/password-reset links and provider integration; activation is currently administrator controlled, with saved-code MFA recovery.
 - Advanced partner intelligence, customer requirements, eligibility/KNN, agreements.
-- Campaigns/approvals/follow-ups, email sync, Redis/Celery workers.
+- OAuth-only incoming-mail provider adapters, advanced campaign analytics, distributed high-throughput workers.
 - Opportunities/finance, projects/tasks, notifications, reports/exports.
 - Responsibility-permission editing UI, global audit viewer, archive recovery UI, history UI beyond recent 30 events.
 - Ubuntu production/TLS, scheduled/offsite backups, retention, monitoring, production recovery sign-off.

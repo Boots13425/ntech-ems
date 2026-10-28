@@ -27,8 +27,14 @@ class ConfigurationInput(BaseModel):
     password: SecretStr | None = Field(default=None, max_length=1024)
     clear_password: bool = False
     updated_at: datetime | None = None
+    imap_host: str | None = Field(default=None, max_length=253)
+    imap_port: int = Field(default=993, ge=1, le=65535, strict=True)
+    imap_username: str = Field(default='', max_length=320)
+    imap_password: SecretStr | None = Field(default=None, max_length=1024)
+    clear_imap_password: bool = False
+    hourly_limit: int = Field(default=50, ge=1, le=1000, strict=True)
 
-    @field_validator("host", "sender_name", "sender_email", "username", mode="before")
+    @field_validator("host", "imap_host", "imap_username", "sender_name", "sender_email", "username", mode="before")
     @classmethod
     def clean_text(cls, value):
         if isinstance(value, str):
@@ -37,9 +43,11 @@ class ConfigurationInput(BaseModel):
             return value.strip()
         return value
 
-    @field_validator("host")
+    @field_validator("host", "imap_host")
     @classmethod
     def valid_host(cls, value):
+        if not value:
+            return None
         try:
             ipaddress.ip_address(value)
         except ValueError:
@@ -84,12 +92,15 @@ def public_configuration(db):
     if row:
         return dict(host=row.host, port=row.port, security=row.security, sender_name=row.sender_name,
                     sender_email=row.sender_email, username=decrypt(row.username_encrypted),
-                    password_configured=bool(row.password_encrypted), updated_at=row.updated_at, saved=True)
+                    password_configured=bool(row.password_encrypted), updated_at=row.updated_at, saved=True,
+                    imap_host=row.imap_host or '', imap_port=row.imap_port,
+                    imap_username=decrypt(row.imap_username_encrypted), imap_password_configured=bool(row.imap_password_encrypted), hourly_limit=row.hourly_limit)
     settings = get_settings()
     return dict(host=settings.smtp_host, port=settings.smtp_port, security=settings.smtp_security,
                 sender_name=settings.smtp_sender_name, sender_email=settings.smtp_sender_email,
                 username=settings.smtp_username.get_secret_value(),
-                password_configured=bool(settings.smtp_password.get_secret_value()), updated_at=None, saved=False)
+                password_configured=bool(settings.smtp_password.get_secret_value()), updated_at=None, saved=False,
+                imap_host='', imap_port=993, imap_username='', imap_password_configured=False, hourly_limit=50)
 
 
 def run_smtp(row, recipient=None):

@@ -1,0 +1,32 @@
+# Email campaigns
+
+The module uses the existing staff accounts, organization contacts, permissions, audit history and CEO email settings. All messages are plain text. No attachment processing or HTML execution is enabled.
+
+## Operation
+
+1. Apply the backend migration: from `backend`, run `.venv\Scripts\alembic.exe upgrade head` on Windows or `.venv/bin/alembic upgrade head` on Linux.
+2. In Settings → Email Configuration, the CEO saves authenticated SMTP with STARTTLS or TLS, the company sender identity, and the hourly campaign limit. Configure the incoming TLS IMAP host, port, username and password for the mailbox receiving replies. Existing SMTP credentials are retained when password fields are blank.
+3. Run the API and frontend as usual. The API automatically starts campaign processing and mailbox synchronization; no separate terminal or worker command is required. Launch/resume wakes processing immediately, and the worker otherwise polls every 15 seconds. Keep the application server running; closing the browser does not affect it. For a dedicated production worker, set `CAMPAIGN_WORKER_ENABLED=false` on the API and run `deployment/ntech-campaign-worker.service`. PostgreSQL locking prevents overlapping worker instances from duplicating sends.
+4. Create a template or campaign. Selecting an organization defaults to one recommended contact; additional contacts require selection. Review each message and submit the draft. CEO/Manager approval is required before launch. Staff may launch their own approved campaigns only with the explicitly assigned `campaigns.launch` permission.
+5. Launch from the campaign detail screen. Monitor accepted messages, failures, replies and pending follow-ups. Record phone/WhatsApp responses using the recipient outcome control; every manual outcome stops pending follow-ups. Do Not Contact suppresses the address across campaigns.
+
+Staff with `campaigns.read` can view the company campaign overview, details and conversation history, including campaigns created by the CEO. Reading does not grant editing, approval or launch access: Staff can edit/submit their own drafts and launch their own approved campaigns only with `campaigns.launch`; CEO/Manager retain management access. Permission changes are checked on every API request and refreshed in an open browser within 15 seconds.
+
+## Delivery and replies
+
+- Sending jobs, exact rendered messages, Message-IDs, attempts, approvals and outcomes are persisted in PostgreSQL. Audit history includes each delivery attempt and its outcome.
+- Each worker cycle processes an eligible initial message, synchronizes replies, then processes another eligible message. Large inbox scans are split across bounded passes so they cannot indefinitely prevent initial sending. The hourly limit counts attempts, including safe retries. PostgreSQL locks serialize worker instances with campaign, contact and sender-setting changes; duplicate recipient/step and overlapping-outreach constraints provide additional protection. Processing health, mailbox health, queued messages and failures are visible on campaign pages.
+- `accepted` means SMTP acceptance, not delivery. A pre-submission connection failure is retried up to three total attempts. An explicit SMTP rejection fails the job. Timeouts during submission or interrupted claims become `uncertain` and are never retried automatically. Check the provider mailbox before deciding on further outreach.
+- Follow-ups are scheduled from the preceding message's acceptance timestamp, up to three steps. Replies cancel queued follow-ups. Paused campaigns retain their jobs; cancelled campaigns cancel them.
+- Pause stops both queued initial emails and follow-ups after the pause action completes. A message already being submitted may finish before pause takes effect and cannot be recalled. Mailbox synchronization continues while paused; replies still stop follow-ups. Resume retains the original due dates, so overdue messages become eligible immediately, subject to suppression, reply checks, approval and sending limits. Pause does not add its duration to follow-up delays.
+- Changes to approved drafts invalidate approval. Sender name/address changes pause affected queued campaigns. If a launched campaign's sender changes, cancel it and create a new reviewed campaign; historical message identity is preserved.
+- Follow-ups require successful mailbox synchronization within five minutes. Disconnected or catching-up mailboxes hold follow-ups. The overview shows the last synchronization and any error.
+- Incoming retrieval uses TLS IMAP with password/app-password authentication. Gmail's localized All Mail folder is discovered through its `\All` special-use flag, covering inbox and archived replies; other providers use INBOX. Sent campaign messages and company-sent thread copies are excluded from replies. The scanner searches only from the first campaign send (with one day of date overlap), fetches up to 200 headers in a batch, and fetches bounded text only for relevant replies. This avoids blocking new replies behind years of unrelated mail. Provider OAuth-only mailboxes need an authentication adapter before use. Gmail folder discovery follows [Google's IMAP extension documentation](https://developers.google.com/workspace/gmail/imap/imap-extensions).
+- Threading headers match conversations; unthreaded mail from a known recipient is flagged for review and stops automation. Auto-replies, bounces and ambiguous senders also stop automation for review. Plain-text content is displayed as text. HTML-only or oversized/truncated replies should be reviewed in the company mailbox.
+- Messages include reply-based opt-out wording and a mailto List-Unsubscribe header. Explicit opt-out replies suppress the address permanently. All other matched responses stop automated follow-ups for human review.
+
+## Verification
+
+From `backend`, run `.venv\Scripts\python.exe -m pytest -q` against the guarded `TEST_DATABASE_URL`. Campaign delivery tests inject mocked SMTP/IMAP; they do not contact real recipients. Browser verification uses `scripts/check_e2e.py` and an isolated local SMTP sink. Never use a real campaign as a delivery test without explicit authorization.
+
+Migrations do not send mail. Starting the API starts processing automatically and resumes eligible jobs from already-launched campaigns. Approved campaigns are not sent until explicitly launched. Automated tests disable automatic processing unless the test explicitly starts it with mocked transports.

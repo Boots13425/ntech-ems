@@ -6,12 +6,12 @@ from app.models import Classification, Permission, Responsibility, Role, User
 PERMISSIONS = [
     "dashboard.read", "organizations.read", "organizations.create", "organizations.update", "organizations.all",
     "contacts.write", "partners.read", "customers.read", "staff.read", "staff.manage", "access.manage",
-    "campaigns.read", "opportunities.read", "projects.read", "reports.read", "finance.read", "audit.read",
+    "campaigns.read", "campaigns.launch", "opportunities.read", "projects.read", "reports.read", "finance.read", "audit.read",
 ]
 ROLE_DEFAULTS = {
     "CEO": PERMISSIONS,
     "Manager": [p for p in PERMISSIONS if p not in {"access.manage", "staff.manage"}],
-    "Staff": ["dashboard.read"],
+    "Staff": ["dashboard.read", "campaigns.read"],
 }
 RESPONSIBILITY_DEFAULTS = {
     "Business Development": ["organizations.read", "organizations.create", "organizations.update", "contacts.write", "customers.read", "opportunities.read"],

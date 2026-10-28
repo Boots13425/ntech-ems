@@ -24,6 +24,11 @@ class EmailConfiguration(Base):
     sender_email: Mapped[str] = mapped_column(String(254))
     username_encrypted: Mapped[str | None] = mapped_column(Text)
     password_encrypted: Mapped[str | None] = mapped_column(Text)
+    imap_host: Mapped[str | None] = mapped_column(String(253))
+    imap_port: Mapped[int] = mapped_column(Integer, default=993)
+    imap_username_encrypted: Mapped[str | None] = mapped_column(Text)
+    imap_password_encrypted: Mapped[str | None] = mapped_column(Text)
+    hourly_limit: Mapped[int] = mapped_column(Integer, default=50)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     __table_args__ = (
         CheckConstraint("id = 1", name="ck_email_configuration_singleton"),
@@ -179,3 +184,105 @@ class AuditEvent(Entity, Base):
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), index=True)
     details: Mapped[dict] = mapped_column(JSONB, default=dict)
     __table_args__ = (Index("ix_audit_org_time", "organization_id", "created_at"),)
+
+
+class EmailTemplate(Entity, Base):
+    __tablename__ = "email_templates"
+    name: Mapped[str] = mapped_column(String(150))
+    category: Mapped[str] = mapped_column(String(60))
+    subject: Mapped[str] = mapped_column(String(500))
+    body: Mapped[str] = mapped_column(Text)
+    creator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+
+
+class EmailCampaign(Entity, Base):
+    __tablename__ = "email_campaigns"
+    name: Mapped[str] = mapped_column(String(150))
+    objective: Mapped[str] = mapped_column(String(40))
+    description: Mapped[str] = mapped_column(Text, default="")
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    subject: Mapped[str] = mapped_column(String(500))
+    body: Mapped[str] = mapped_column(Text)
+    steps: Mapped[list] = mapped_column(JSONB, default=list)
+    status: Mapped[str] = mapped_column(String(25), default="draft", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    approved_version: Mapped[int | None] = mapped_column(Integer)
+    sender_email: Mapped[str | None] = mapped_column(String(254))
+    sender_name: Mapped[str | None] = mapped_column(String(150))
+    issue: Mapped[str | None] = mapped_column(Text)
+
+
+class CampaignRecipient(Entity, Base):
+    __tablename__ = "campaign_recipients"
+    campaign_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("email_campaigns.id"), index=True)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), index=True)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    email: Mapped[str] = mapped_column(String(254), index=True)
+    variables: Mapped[dict] = mapped_column(JSONB)
+    outcome: Mapped[str] = mapped_column(String(30), default="pending")
+    stopped: Mapped[bool] = mapped_column(Boolean, default=False)
+    outreach_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    __table_args__ = (UniqueConstraint("campaign_id", "email", name="uq_campaign_email"),
+                     Index("uq_active_outreach_email", "email", unique=True, postgresql_where=Column("outreach_active", Boolean) == True))
+
+
+class CampaignApproval(Entity, Base):
+    __tablename__ = "campaign_approvals"
+    campaign_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("email_campaigns.id"), index=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    version: Mapped[int] = mapped_column(Integer)
+    decision: Mapped[str] = mapped_column(String(20))
+    note: Mapped[str] = mapped_column(Text, default="")
+
+
+class OutboundEmail(Entity, Base):
+    __tablename__ = "outbound_emails"
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("campaign_recipients.id"), index=True)
+    step: Mapped[int] = mapped_column(Integer)
+    subject: Mapped[str] = mapped_column(String(500))
+    body: Mapped[str] = mapped_column(Text)
+    message_id: Mapped[str] = mapped_column(String(255), unique=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (UniqueConstraint("recipient_id", "step", name="uq_recipient_step"),)
+
+
+class InboundEmail(Entity, Base):
+    __tablename__ = "inbound_emails"
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("campaign_recipients.id"), index=True)
+    mailbox_key: Mapped[str] = mapped_column(String(100), unique=True)
+    message_id: Mapped[str | None] = mapped_column(String(998))
+    subject: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    sender: Mapped[str] = mapped_column(String(254))
+
+
+class EmailSuppression(Entity, Base):
+    __tablename__ = "email_suppressions"
+    email: Mapped[str] = mapped_column(String(254), unique=True)
+    reason: Mapped[str] = mapped_column(String(300))
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+
+
+class MailboxSyncState(Base):
+    __tablename__ = "mailbox_sync_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    identity: Mapped[str] = mapped_column(String(64), default="")
+    uid_validity: Mapped[str] = mapped_column(String(40), default="")
+    last_uid: Mapped[int] = mapped_column(Integer, default=0)
+    last_success: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class CampaignWorkerState(Base):
+    __tablename__ = "campaign_worker_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    last_heartbeat: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_completed: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    phase: Mapped[str] = mapped_column(String(30))
+    error: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (CheckConstraint("id = 1", name="ck_campaign_worker_singleton"),)

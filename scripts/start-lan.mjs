@@ -97,7 +97,7 @@ async function main() {
     throw new Error(`${error.message}\n${running.reason}\nIf this is your frontend, stop it in its original terminal with Ctrl+C, then run this command again.`)
   }
   await checkPort(apiPort, '127.0.0.1')
-  console.log('\nStarting API and interface. Keep this terminal open; Ctrl+C stops both.')
+  console.log('\nStarting API (including campaign delivery and reply checking) and interface. Keep this terminal open; Ctrl+C stops them.')
   const api = start(python, ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', String(apiPort)], resolve(root, 'backend'), env)
   await waitForApi(api, apiPort)
   if (stopping) return

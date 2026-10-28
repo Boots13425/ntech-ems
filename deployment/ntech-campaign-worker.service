@@ -1,0 +1,20 @@
+[Unit]
+Description=NTECH EMS campaign delivery and incoming-mail worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=ntech
+Group=ntech
+WorkingDirectory=/srv/ntech-ems/backend
+EnvironmentFile=/etc/ntech-ems/backend.env
+ExecStart=/srv/ntech-ems/backend/.venv/bin/python -m app.campaign_worker
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+[Install]
+WantedBy=multi-user.target
