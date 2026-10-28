@@ -62,7 +62,6 @@ class ContactInput(Input):
 class StaffCreate(Input):
     full_name: str = Field(min_length=2, max_length=150)
     email: EmailStr
-    temporary_password: str = Field(min_length=12, max_length=128)
     role: Literal["CEO", "Manager", "Staff"] = "Staff"
     responsibilities: list[str] = Field(default_factory=list, max_length=4)
 

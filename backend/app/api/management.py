@@ -1,3 +1,4 @@
+import secrets
 from typing import Annotated
 from uuid import UUID
 
@@ -54,13 +55,14 @@ def assign_access(db, user, role_name, names):
 
 @router.post("/staff", status_code=201)
 def create_staff(data: StaffCreate, db: DB, actor: Admin):
-    user = User(full_name=data.full_name, email=str(data.email).casefold(), password_hash=hash_password(data.temporary_password), must_change_password=True)
+    temporary_password = secrets.token_urlsafe(18)
+    user = User(full_name=data.full_name, email=str(data.email).casefold(), password_hash=hash_password(temporary_password), must_change_password=True)
     assign_access(db, user, data.role, data.responsibilities)
     db.add(user)
     db.flush()
     audit(db, actor, "staff.created", entity_id=user.id)
     db.commit()
-    return user_json(user)
+    return {**user_json(user), "temporary_password": temporary_password}
 
 
 @router.put("/staff/{user_id}")

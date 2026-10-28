@@ -3,7 +3,7 @@ from datetime import timedelta
 import pyotp
 from sqlalchemy import select
 
-from app.core.security import digest
+from app.core.security import digest, verify_password
 from app.db.session import SessionLocal
 from app.models import AuditEvent, Contact, Organization, PartnerProfile, Session, User, utcnow
 from conftest import authenticate, create_user, csrf, post
@@ -124,16 +124,28 @@ def test_manager_finance_permission_and_configurable_access(client):
     authenticate(client, "manager@example.org", "Manager")
     assert "finance.read" in client.get("/api/auth/me").json()["permissions"]
     assert client.get("/api/access").status_code == 403
-    assert post(client, "/staff", {"full_name": "Blocked", "email": "blocked@example.org", "temporary_password": "longpassword123!"}).status_code == 403
+    assert post(client, "/staff", {"full_name": "Blocked", "email": "blocked@example.org"}).status_code == 403
 
 
 def test_staff_provision_activation_and_temporary_password(client):
     authenticate(client)
-    created = post(client, "/staff", {"full_name": "New Team Member", "email": "new@example.org", "temporary_password": "Initial private password!", "responsibilities": ["Business Development"]})
+    created = post(client, "/staff", {"full_name": "New Team Member", "email": "new@example.org", "responsibilities": ["Business Development"]})
     assert created.status_code == 201 and created.json()["must_change_password"] is True
     user_id = created.json()["id"]
+    password = created.json()["temporary_password"]
+    assert len(password) >= 24
+    assert created.headers["cache-control"] == "no-store"
+    listing = client.get("/api/staff")
+    assert password not in listing.text and "temporary_password" not in listing.text
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "new@example.org"))
+        assert user.password_hash != password and verify_password(password, user.password_hash)
+        events = db.scalars(select(AuditEvent).where(AuditEvent.action == "staff.created")).all()
+        assert events and password not in str([event.__dict__ for event in events])
+    second = post(client, "/staff", {"full_name": "Another Member", "email": "another@example.org"})
+    assert second.status_code == 201 and second.json()["temporary_password"] != password
     assert post(client, f"/staff/{user_id}", {"full_name": "New Team Member", "is_active": False, "role": "Staff", "responsibilities": []}, method="put").status_code == 200
-    assert post(client, "/auth/login", {"email": "new@example.org", "password": "Initial private password!"}).status_code == 401
+    assert post(client, "/auth/login", {"email": "new@example.org", "password": password}).status_code == 401
 
 
 def test_required_password_change_and_session_revocation(client):
@@ -187,3 +199,18 @@ def test_login_rate_limit_and_validation_redaction(client):
     secret = "do-not-echo-this-secret"
     response = post(client, "/auth/login", {"email": "invalid-email", "password": secret})
     assert response.status_code == 422 and secret not in response.text
+
+
+def test_generated_staff_password_sign_in_and_required_change(client):
+    authenticate(client)
+    created = post(client, "/staff", {"full_name": "Generated Member", "email": "generated@example.org"})
+    assert created.status_code == 201
+    password = created.json()["temporary_password"]
+    post(client, "/auth/logout")
+    login = post(client, "/auth/login", {"email": "generated@example.org", "password": password})
+    assert login.status_code == 200
+    secret = post(client, "/auth/mfa/enroll").json()["secret"]
+    assert post(client, "/auth/mfa/confirm", {"code": pyotp.TOTP(secret).now()}).status_code == 200
+    assert client.get("/api/dashboard").status_code == 403
+    assert post(client, "/auth/password", {"current_password": password, "new_password": "My chosen replacement password!"}).status_code == 200
+    assert client.get("/api/dashboard").status_code == 200
