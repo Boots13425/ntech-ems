@@ -11,6 +11,7 @@ from app.core.permissions import effective_permissions
 from app.core.security import audit, hash_password
 from app.models import AuditEvent, Classification, Organization, Permission, Responsibility, Role, Session, User
 from app.schemas import RolePermissions, StaffCreate, StaffUpdate
+from app.services.notifications import notify
 from app.services.serialization import audit_json, user_json
 
 router = APIRouter(tags=["Management"])
@@ -60,6 +61,7 @@ def create_staff(data: StaffCreate, db: DB, actor: Admin):
     assign_access(db, user, data.role, data.responsibilities)
     db.add(user)
     db.flush()
+    notify(db, user.id, "account.created", "Welcome to NTECH EMS", "Your staff account is ready. Review your account details in Settings.")
     audit(db, actor, "staff.created", entity_id=user.id)
     db.commit()
     return {**user_json(user), "temporary_password": temporary_password}
@@ -77,10 +79,16 @@ def update_staff(user_id: UUID, data: StaffUpdate, db: DB, actor: Admin):
         active_ceos = db.scalar(select(func.count()).select_from(User).where(User.is_active.is_(True), User.roles.any(Role.name == "CEO")))
         if active_ceos <= 1:
             raise HTTPException(400, "At least one active CEO account is required")
+    changed = (user.full_name != data.full_name or user.is_active != data.is_active
+               or {r.name for r in user.roles} != {data.role}
+               or {r.name for r in user.responsibilities} != set(data.responsibilities))
     user.full_name, user.is_active = data.full_name, data.is_active
     assign_access(db, user, data.role, data.responsibilities)
     if not user.is_active:
         db.execute(delete(Session).where(Session.user_id == user.id))
+    if changed:
+        notify(db, user.id, "account.updated", "Your staff account was updated",
+               f"{actor.full_name} updated your account details or access. Review your account in Settings.")
     audit(db, actor, "staff.updated", entity_id=user.id, is_active=user.is_active, role=data.role)
     db.commit()
     return user_json(user)
@@ -105,7 +113,12 @@ def update_role(role_id: UUID, data: RolePermissions, db: DB, actor: AccessAdmin
     permissions = list(db.scalars(select(Permission).where(Permission.code.in_(set(data.permissions)))))
     if len(permissions) != len(set(data.permissions)):
         raise HTTPException(422, "Unknown permission")
+    changed = {p.code for p in role.permissions} != set(data.permissions)
     role.permissions = permissions
+    if changed:
+        for member in db.scalars(select(User).where(User.is_active.is_(True), User.roles.any(id=role.id))):
+            notify(db, member.id, "account.access_updated", "Your role permissions changed",
+                   f"The permissions for your {role.name} role were updated. Your workspace access now reflects this change.")
     audit(db, actor, "access.role_updated", "role", role.id)
     db.commit()
     return {"id": role.id, "name": role.name, "permissions": sorted(p.code for p in permissions)}

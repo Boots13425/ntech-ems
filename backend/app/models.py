@@ -286,3 +286,19 @@ class CampaignWorkerState(Base):
     phase: Mapped[str] = mapped_column(String(30))
     error: Mapped[str | None] = mapped_column(Text)
     __table_args__ = (CheckConstraint("id = 1", name="ck_campaign_worker_singleton"),)
+
+
+class Notification(Entity, Base):
+    __tablename__ = "notifications"
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(80))
+    title: Mapped[str] = mapped_column(String(150))
+    message: Mapped[str] = mapped_column(Text)
+    path: Mapped[str] = mapped_column(String(200))
+    required_permission: Mapped[str | None] = mapped_column(String(100))
+    reviewer_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        Index("ix_notifications_recipient_created", "recipient_id", "created_at", "id"),
+        Index("ix_notifications_unread", "recipient_id", postgresql_where=read_at.is_(None)),
+    )

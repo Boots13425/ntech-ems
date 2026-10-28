@@ -1,5 +1,14 @@
 # Implementation status
 
+## Private in-app notifications - 28 October 2026
+
+- Persistent recipient-specific inbox, unread badge/filter, pagination, single/all read actions, and campaign/settings navigation. Refreshes every 15 seconds.
+- Submission alerts target active authorized CEO/Manager reviewers; decisions/status changes and replies target the campaign owner. Account/password events target the affected user only.
+- Server-enforced recipient isolation and current permissions, transactional inserts, reply deduplication, and no sensitive credential content.
+- Migration `0005_notifications` includes pending-approval backfill. See `docs/NOTIFICATIONS.md` for deployment and recipient rules.
+- Verified: backend notification/security/campaign regression, TypeScript/production build, and real browser/API/database staff submission -> reviewer alert/approval -> owner alert/read persistence. Reply ingestion creates one owner alert even on replay.
+
+
 ## Email campaigns — 22 October 2026
 
 - Implemented: PostgreSQL campaign/template/recipient/approval/outbound/inbound/suppression/sync records; scoped APIs, strict personalization, approvals, durable sending, threaded follow-ups, IMAP synchronization, manual outcomes and suppression. React overview/editor/templates/details and CEO incoming-mail settings are integrated.
@@ -19,7 +28,7 @@ Foundation scope, 20 October 2026. No fabricated business records or default cre
 
 - [x] Responsive React/TypeScript/Tailwind/shadcn interface, sidebar/drawer, profile, protected navigation.
 - [x] Dashboard, staff, organization/contact management, partner/customer filtered views, security settings.
-- [x] Honest upcoming states for opportunities, projects, reports, notifications; campaign module added above.
+- [x] Honest upcoming states for opportunities, projects, reports; campaign module added above.
 - [x] PWA manifest/icons, public-asset-only worker, offline errors, install/update handling.
 - [x] PostgreSQL/Alembic models, real readiness, structured logs, sanitized errors.
 - [x] Argon2id, cookie sessions, mandatory TOTP, single-use recovery, CSRF/origins, throttling.
@@ -47,6 +56,6 @@ Screenshots of desktop/mobile dashboards and organization detail were visually i
 - Email activation/password-reset links and provider integration; activation is currently administrator controlled, with saved-code MFA recovery.
 - Advanced partner intelligence, customer requirements, eligibility/KNN, agreements.
 - OAuth-only incoming-mail provider adapters, advanced campaign analytics, distributed high-throughput workers.
-- Opportunities/finance, projects/tasks, notifications, reports/exports.
+- Opportunities/finance, projects/tasks, reports/exports.
 - Responsibility-permission editing UI, global audit viewer, archive recovery UI, history UI beyond recent 30 events.
 - Ubuntu production/TLS, scheduled/offsite backups, retention, monitoring, production recovery sign-off.

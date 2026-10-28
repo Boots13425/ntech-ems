@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import engine
 from app.core.security import audit
+from app.services.notifications import notify
 from app.models import (EmailConfiguration, EmailCampaign, CampaignRecipient, OutboundEmail, InboundEmail,
                         MailboxSyncState, CampaignWorkerState, Contact, AuditEvent, utcnow)
 from app.services.email_configuration import decrypt
@@ -82,6 +83,10 @@ def ingest(db, raw, key, sender_email=None):
     new_text = re.split(r'(?im)^\s*(?:>|on .+wrote:|from:|--\s*$)', body)[0].strip()
     if sender == recipient.email and re.search(r'(?i)\b(unsubscribe|remove me|do not contact|stop emailing|stop contacting)\b', str(message.get('Subject', '')) + '\n' + new_text):
         suppress_address(db, recipient.email, 'Opt-out received by email')
+    campaign = db.get(EmailCampaign, recipient.campaign_id)
+    notify(db, campaign.owner_id, 'campaign.reply', 'New campaign response',
+           f'A response was received for "{campaign.name}". Open the campaign to review it.',
+           path=f'/campaigns/{campaign.id}', permission='campaigns.read')
     audit(db, None, 'campaign.reply_received', 'contact', recipient.contact_id, recipient.organization_id)
 
 

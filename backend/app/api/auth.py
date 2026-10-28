@@ -10,6 +10,7 @@ from app.api.dependencies import CurrentSession, DB
 from app.core.security import DUMMY_PASSWORD_HASH, audit, check_origin, cipher, digest, hash_password, hasher, issue_session, rate_limit, verify_password
 from app.models import RecoveryCode, Session, User, utcnow
 from app.schemas import Code, Login, PasswordChange
+from app.services.notifications import notify
 from app.services.serialization import user_json
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -138,6 +139,7 @@ def change_password(data: PasswordChange, response: Response, db: DB, session: C
     user.must_change_password = False
     db.execute(delete(Session).where(Session.user_id == user.id, Session.id != session.id))
     issue_session(db, response, user, "authenticated", session)
+    notify(db, user.id, "account.password_changed", "Password changed", "Your account password was changed. If this was unexpected, contact your administrator.")
     audit(db, user, "auth.password_changed", entity_id=user.id)
     db.commit()
     return user_json(user)

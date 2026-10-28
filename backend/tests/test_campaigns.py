@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from conftest import authenticate, post
 from app.db.session import SessionLocal, engine
 from app.models import (EmailCampaign, CampaignRecipient, EmailConfiguration, OutboundEmail, InboundEmail,
-    MailboxSyncState, EmailSuppression, Contact, Organization, User, AuditEvent, utcnow)
+    MailboxSyncState, EmailSuppression, Contact, Organization, User, AuditEvent, Notification, utcnow)
 from app.services.email_configuration import encrypt
 from app.services.campaigns import render
 from app.campaign_worker import process_one, ingest, mailbox_identity, sync_mailbox, deliver
@@ -116,6 +116,8 @@ def test_delivery_followup_and_reply_idempotence(client):
         ingest(db, msg.as_bytes(), 'mailbox-1'); db.commit()
         ingest(db, msg.as_bytes(), 'mailbox-1'); ingest(db, msg.as_bytes(), 'mailbox-new-uid'); db.commit()
         assert db.scalar(select(func.count()).select_from(InboundEmail)) == 1
+        alerts = db.scalars(select(Notification).where(Notification.kind == 'campaign.reply')).all()
+        assert len(alerts) == 1 and str(alerts[0].recipient_id) == c['owner_id']
         assert db.get(OutboundEmail, followup.id).status == 'cancelled'
         assert db.scalar(select(CampaignRecipient)).stopped
     assert not work().called

@@ -12,6 +12,7 @@ from app.core.permissions import effective_permissions
 from app.core.security import audit
 from app.models import (EmailTemplate, EmailCampaign, CampaignRecipient, CampaignApproval, OutboundEmail,
                         InboundEmail, EmailSuppression, MailboxSyncState, CampaignWorkerState, Contact, Organization, User, utcnow)
+from app.services.notifications import campaign_event
 from app.services.campaign_runtime import wake_worker
 from app.services.campaigns import (VARIABLES, Content, TemplateInput, CampaignInput, render, variables_for,
     recipients, validate_campaign, sender_configuration, queue_message, stop_recipient, suppress_address)
@@ -194,6 +195,7 @@ def edit_campaign(id: UUID, data: CampaignInput, db: DB, actor: Actor):
         raise HTTPException(409, 'Campaign changed. Reload before saving')
     row.version += 1
     apply_campaign(db, actor, row, data)
+    campaign_event(db, row, actor, "edit")
     db.commit()
     return summary(db, row)
 
@@ -259,6 +261,7 @@ def action(id: UUID, data: ActionInput, db: DB, actor: Actor):
         for recipient in recipients(db, row):
             stop_recipient(db, recipient, 'cancelled')
     row.status, row.issue = target, None
+    campaign_event(db, row, actor, operation)
     audit(db, actor, 'campaign.' + operation, 'email_campaign', row.id)
     db.commit()
     if operation in ('launch', 'resume'):
