@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, ChevronLeft, ChevronRight, Pencil, Plus, Search, Users } from 'lucide-react'
 import { toast } from 'sonner'
@@ -18,18 +18,35 @@ function StaffForm({ user, onClose }: { user?: User; onClose: () => void }) {
   const [error, setError] = useState('')
   const [created, setCreated] = useState<(User & { temporary_password: string }) | null>(null)
   const [copied, setCopied] = useState(false)
+  const passwordInput = useRef<HTMLInputElement>(null)
   async function copyPassword() {
     if (!created) return
     try {
-      await navigator.clipboard.writeText(created.temporary_password)
+      // Copy the visible input inside the modal so its focus trap does not
+      // interfere. This also works on LAN HTTP where Clipboard API is absent.
+      const input = passwordInput.current
+      const previousFocus = document.activeElement
+      let didCopy = false
+      if (input) {
+        input.focus()
+        input.select()
+        input.setSelectionRange(0, input.value.length)
+        try { didCopy = document.execCommand('copy') } catch { /* Try Clipboard API below. */ }
+        if (previousFocus instanceof HTMLElement) previousFocus.focus()
+      }
+      if (!didCopy) {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+        await navigator.clipboard.writeText(created.temporary_password)
+      }
       setCopied(true)
       toast.success('Temporary password copied')
     } catch {
+      setCopied(false)
       setError('Unable to copy automatically. Select the password and copy it manually.')
     }
   }
   const mutation = useMutation({ mutationFn: (body: Record<string, unknown>) => send<User & { temporary_password: string }>(user ? `/staff/${user.id}` : '/staff', body, user ? 'PUT' : 'POST'), gcTime: 0, onSuccess: result => { void client.invalidateQueries({ queryKey: ['staff'] }); void client.invalidateQueries({ queryKey: ['staff-owners'] }); void client.invalidateQueries({ queryKey: ['dashboard'] }); toast.success(user ? 'Staff account updated' : 'Staff account created. Share the temporary password securely.'); setError(''); if (user) onClose(); else setCreated(result) }, onError: error => setError(error.message) })
-  if (created) return <Dialog open onOpenChange={open => { if (!open) onClose() }}><DialogContent><DialogHeader><DialogTitle>Staff account created</DialogTitle><DialogDescription>Share this temporary password privately with {created.full_name} ({created.email}). They must change it and enroll MFA at first sign-in.</DialogDescription></DialogHeader><div className="space-y-4"><div><label htmlFor="generated-password" className="field-label">Temporary password</label><div className="flex gap-2"><Input id="generated-password" readOnly value={created.temporary_password} className="font-mono" onFocus={event => event.target.select()} /><Button type="button" variant="outline" size="icon" aria-label="Copy temporary password" onClick={() => { setError(''); void copyPassword() }}>{copied ? <Check className="size-4" /> : <Copy className="size-4" />}</Button></div><p role="status" className="mt-2 text-xs text-muted-foreground">{copied ? 'Password copied.' : 'Copy this password before closing. It cannot be viewed again.'}</p></div>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<div className="flex justify-end"><Button onClick={onClose}>Done</Button></div></div></DialogContent></Dialog>
+  if (created) return <Dialog open onOpenChange={open => { if (!open) onClose() }}><DialogContent><DialogHeader><DialogTitle>Staff account created</DialogTitle><DialogDescription>Share this temporary password privately with {created.full_name} ({created.email}). They must change it and enroll MFA at first sign-in.</DialogDescription></DialogHeader><div className="space-y-4"><div><label htmlFor="generated-password" className="field-label">Temporary password</label><div className="flex gap-2"><Input ref={passwordInput} id="generated-password" readOnly value={created.temporary_password} className="font-mono" onFocus={event => event.target.select()} /><Button type="button" variant="outline" size="icon" aria-label="Copy temporary password" onClick={() => { setError(''); void copyPassword() }}>{copied ? <Check className="size-4" /> : <Copy className="size-4" />}</Button></div><p role="status" className="mt-2 text-xs text-muted-foreground">{copied ? 'Password copied.' : 'Copy this password before closing. It cannot be viewed again.'}</p></div>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<div className="flex justify-end"><Button onClick={onClose}>Done</Button></div></div></DialogContent></Dialog>
   return <Dialog open onOpenChange={open => { if (!open && !mutation.isPending) onClose() }}><DialogContent className="max-h-[90dvh] overflow-y-auto"><DialogHeader><DialogTitle>{user ? 'Edit staff access' : 'Add a team member'}</DialogTitle><DialogDescription>{user ? 'Manage this account’s role, responsibilities, and activation.' : 'The member must enroll MFA and change their temporary password at first sign-in.'}</DialogDescription></DialogHeader><form className="mt-3 space-y-4" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); mutation.mutate({ full_name: form.get('full_name'), role: form.get('role'), responsibilities: form.getAll('responsibilities'), ...(user ? { is_active: form.get('is_active') === 'on' } : { email: form.get('email') }) }) }}><div><label htmlFor="staff-name" className="field-label">Full name</label><Input id="staff-name" name="full_name" defaultValue={user?.full_name} required minLength={2} maxLength={150} /></div>{!user && <><div><label htmlFor="staff-email" className="field-label">Email address</label><Input id="staff-email" name="email" type="email" autoComplete="off" required /></div><p className="text-xs text-muted-foreground">A temporary password will be generated automatically after you create the account.</p></>}
   <div><label htmlFor="staff-role" className="field-label">Primary role</label><select id="staff-role" name="role" className="select-input" defaultValue={user?.roles[0] || 'Staff'}>{['CEO', 'Manager', 'Staff'].map(role => <option key={role}>{role}</option>)}</select></div><fieldset><legend className="field-label">Functional responsibilities</legend><div className="space-y-3">{responsibilities.map(value => <label key={value} className="flex items-center gap-2 text-xs"><input type="checkbox" name="responsibilities" value={value} defaultChecked={user?.responsibilities.includes(value)} className="size-4 accent-primary" />{value}</label>)}</div></fieldset>{user && <label className="flex items-center gap-2 border-t pt-4 text-xs"><input type="checkbox" name="is_active" defaultChecked={user.is_active} className="size-4 accent-primary" />Account is active</label>}{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" disabled={mutation.isPending} onClick={onClose}>Cancel</Button><Button disabled={mutation.isPending}>{user ? 'Save changes' : 'Create account'}</Button></div></form></DialogContent></Dialog>
 }
