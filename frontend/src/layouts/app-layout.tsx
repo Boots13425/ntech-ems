@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, ChartNoAxesCombined, ChevronDown, ChevronsLeft, ChevronsRight, FolderKanban, Handshake, LayoutDashboard, LogOut, Mail, Menu, Search, Settings, ShieldCheck, Target, Users, UsersRound, WifiOff } from 'lucide-react'
+import { Archive, Building2, ChartNoAxesCombined, ChevronDown, ChevronsLeft, ChevronsRight, FolderKanban, Handshake, LayoutDashboard, LogOut, Mail, Menu, Search, Settings, ShieldCheck, Target, Users, UsersRound, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -26,11 +26,12 @@ const groups = [
     { to: '/opportunities', title: 'Opportunities', icon: Target, permission: 'opportunities.read' },
     { to: '/projects', title: 'Projects', icon: FolderKanban, permission: 'projects.read' },
   ] },
+  { label: 'Administration', items: [{ to: '/backups', title: 'Backup', icon: Archive, permission: 'access.manage' }] },
   { label: 'Intelligence', items: [{ to: '/reports', title: 'Reports', icon: ChartNoAxesCombined, permission: 'reports.read' }] },
 ]
 function Navigation({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
   const auth = useAuth()
-  return <nav aria-label="Main navigation" className="space-y-7 px-3">{groups.map(group => { const items = group.items.filter(item => auth.can(item.permission)); if (!items.length) return null; return <div key={group.label}>{!collapsed && <p className="mb-2.5 px-3 text-[9px] font-semibold tracking-[.17em] text-slate-500 uppercase">{group.label}</p>}<div className="space-y-1">{items.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/'} onClick={onNavigate} title={collapsed ? item.title : undefined} className={({ isActive }) => cn('flex min-h-10 items-center gap-3 rounded-lg px-3 text-[12px] font-medium transition-colors', collapsed && 'justify-center px-0', isActive ? 'bg-[#294164] text-white shadow-sm' : 'text-slate-400 hover:bg-white/5 hover:text-white')}><item.icon className="size-[17px] shrink-0" strokeWidth={1.7} />{!collapsed && item.title}</NavLink>)}</div></div> })}</nav>
+  return <nav aria-label="Main navigation" className="space-y-7 px-3">{groups.map(group => { const items = group.items.filter(item => auth.can(item.permission) && (item.to !== '/backups' || auth.user!.roles.includes('CEO'))); if (!items.length) return null; return <div key={group.label}>{!collapsed && <p className="mb-2.5 px-3 text-[9px] font-semibold tracking-[.17em] text-slate-500 uppercase">{group.label}</p>}<div className="space-y-1">{items.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/'} onClick={onNavigate} title={collapsed ? item.title : undefined} className={({ isActive }) => cn('flex min-h-10 items-center gap-3 rounded-lg px-3 text-[12px] font-medium transition-colors', collapsed && 'justify-center px-0', isActive ? 'bg-[#294164] text-white shadow-sm' : 'text-slate-400 hover:bg-white/5 hover:text-white')}><item.icon className="size-[17px] shrink-0" strokeWidth={1.7} />{!collapsed && item.title}</NavLink>)}</div></div> })}</nav>
 }
 export default function AppLayout() {
   const auth = useAuth()

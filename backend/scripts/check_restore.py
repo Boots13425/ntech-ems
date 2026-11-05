@@ -1,8 +1,9 @@
 """Create a fresh recovery-test database, restore a backup, and compare record counts."""
 import os
+import argparse
+import re
 import subprocess
 import sys
-from pathlib import Path
 
 import psycopg
 from psycopg import sql
@@ -11,19 +12,23 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import get_settings
 from app.models import Base
+from app.backup import create_backup
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--target-database', help='Fresh recovery database name ending in _restore_test')
+    args = parser.parse_args()
     source_url = get_settings().database_url.get_secret_value()
     source = make_url(source_url)
-    target_name = f"{source.database}_restore_test"
+    target_name = args.target_database or f"{source.database}_restore_test"
+    if not re.fullmatch(r'[a-z][a-z0-9_]{0,49}_restore_test', target_name) or target_name == source.database:
+        parser.error('Use a distinct database name ending in _restore_test, at most 63 characters')
     with psycopg.connect(os.environ.get("ADMIN_DATABASE_URL", "host=127.0.0.1 dbname=postgres user=postgres"), autocommit=True) as connection:
         if connection.execute("SELECT 1 FROM pg_database WHERE datname = %s", (target_name,)).fetchone():
             raise SystemExit("Recovery-test database exists. Existing data was preserved; use a fresh target for another drill.")
         connection.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(sql.Identifier(target_name), sql.Identifier(source.username)))
-    backup_dir = Path(__file__).resolve().parents[2] / "backups"
-    subprocess.run([sys.executable, "-m", "app.backup", "backup", "--directory", str(backup_dir)], check=True)
-    latest = max(backup_dir.glob("*.dump.enc"), key=lambda p: p.stat().st_mtime)
+    latest = create_backup(get_settings().backup_directory)
     environment = os.environ.copy()
     target_url = source.set(database=target_name).render_as_string(hide_password=False)
     environment["RESTORE_DATABASE_URL"] = target_url

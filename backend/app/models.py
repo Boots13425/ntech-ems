@@ -15,6 +15,30 @@ class Base(DeclarativeBase):
     pass
 
 
+class BackupSchedule(Base):
+    __tablename__ = 'backup_schedule'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    next_run: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    heartbeat: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (CheckConstraint('id = 1', name='ck_backup_schedule_singleton'),)
+
+
+class BackupRun(Base):
+    __tablename__ = 'backup_runs'
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    trigger: Mapped[str] = mapped_column(String(12))
+    status: Mapped[str] = mapped_column(String(12), default='queued')
+    filename: Mapped[str | None] = mapped_column(String(100))
+    size_bytes: Mapped[int | None] = mapped_column(Numeric(20, 0))
+    error: Mapped[str | None] = mapped_column(String(300))
+    __table_args__ = (
+        CheckConstraint("trigger IN ('manual','scheduled')", name='ck_backup_trigger'),
+        CheckConstraint("status IN ('queued','running','completed','failed','expired')", name='ck_backup_status'),
+    )
+
+
 class EmailConfiguration(Base):
     __tablename__ = "email_configuration"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)

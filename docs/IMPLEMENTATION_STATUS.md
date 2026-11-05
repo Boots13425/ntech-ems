@@ -1,5 +1,13 @@
 # Implementation status
 
+## Backup module - 5 November 2026
+
+- Implemented: CEO-only Backup navigation/page and Settings link, Monday 12:00 Africa/Douala scheduling, manual durable queue, catch-up after downtime, interrupted-job history, encrypted verified downloads/checksums, audit events, and retention of eight successful module archives.
+- Migration: `0007_backups`, applied locally; `alembic check` reports no new operations. Existing encryption keys/configuration are preserved. A verified encrypted application backup was taken before migration.
+- Verification: 90 backend tests passed (11 backup tests), frontend typecheck/build passed, and a real browser flow passed on desktop/mobile with a manual PostgreSQL backup, downloaded checksum comparison, and staff access denial. Tests use an isolated database and temporary archive storage.
+- Full restore drill attempted but not completed: the PostgreSQL administrator connection requires authentication unavailable to this session. No recovery target or existing data was overwritten. Run the documented restore drill with authorized administrator authentication.
+- Operation: scheduler starts with the API; the host must remain running/awake. External failure alerts and offsite replication remain deployment tasks. See [Backup and recovery](BACKUP_RECOVERY.md) for the exact setup and recovery procedure.
+
 ## Opportunities and follow-up work
 
 - Implemented: pipeline, estimates by currency, close date/loss reason, management-only owner assignment, staff-scoped work, task scheduling/completion, due/overdue notifications, and audit history.
@@ -67,4 +75,4 @@ Screenshots of desktop/mobile dashboards and organization detail were visually i
 - OAuth-only incoming-mail provider adapters, advanced campaign analytics, distributed high-throughput workers.
 - Finance, projects/delivery tasks, reports/exports.
 - Responsibility-permission editing UI, global audit viewer, archive recovery UI, history UI beyond recent 30 events.
-- Ubuntu production/TLS, scheduled/offsite backups, retention, monitoring, production recovery sign-off.
+- Ubuntu production/TLS, offsite replication, external monitoring, production recovery sign-off. Local scheduling and retention are implemented above.

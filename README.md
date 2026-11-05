@@ -106,12 +106,15 @@ Open **http://127.0.0.1:4173**. Service workers run in production builds/preview
 
 ## Verification
 
+The CEO's **Backup** section supports manual backups and automatic backups every **Monday at 12:00 noon, Cameroon time**. The server must remain running; missed schedules catch up on restart. See [Backup and recovery](docs/BACKUP_RECOVERY.md) for encryption keys, retention, setup, and restoration.
+
 From `backend`:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe scripts/check_e2e.py
 .\.venv\Scripts\python.exe scripts/check_e2e.py --lan
+.\.venv\Scripts\python.exe scripts/check_e2e.py --backups
 .\.venv\Scripts\python.exe scripts/check_restore.py
 ```
 

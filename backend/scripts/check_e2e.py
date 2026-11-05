@@ -6,11 +6,13 @@ import secrets
 import subprocess
 import sys
 import time
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 from alembic import command
+from cryptography.fernet import Fernet
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
@@ -38,6 +40,7 @@ def wait_ready(url, process):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--lan', action='store_true', help='Exercise the LAN launcher and detected network address')
+    parser.add_argument('--backups', action='store_true', help='Exercise backup creation, download and CEO access')
     args = parser.parse_args()
     base_url = 'http://127.0.0.1:4173'
     if args.lan:
@@ -80,6 +83,9 @@ def main():
     environment = os.environ.copy()
     environment.update(E2E_EMAIL=email, E2E_PASSWORD=password, COOKIE_SECURE="false", API_PROXY_TARGET="http://127.0.0.1:8001", E2E_BASE_URL=base_url, CAMPAIGN_WORKER_ENABLED="false")
     environment.update(E2E_STAFF_EMAIL=staff_email, E2E_STAFF_PASSWORD=staff_password)
+    backup_files = tempfile.TemporaryDirectory(prefix='ntech-e2e-backups-')
+    environment.update(BACKUP_WORKER_ENABLED='true' if args.backups else 'false',
+                       BACKUP_DIRECTORY=backup_files.name, BACKUP_ENCRYPTION_KEY=Fernet.generate_key().decode())
     log_dir = root / ".verification"
     log_dir.mkdir(exist_ok=True)
     processes = []
@@ -99,8 +105,9 @@ def main():
                 wait_ready(base_url, frontend)
             with smtp_sink() as smtp:
                 environment["E2E_SMTP_PORT"] = str(smtp.server_address[1])
-                result = subprocess.run(["node", str(root / "frontend/node_modules/@playwright/test/cli.js"), "test", "--reporter=line"], cwd=root / "frontend", env=environment)
-                if result.returncode == 0 and not any(b"NTECH EMS test email" in message for message in smtp.messages):
+                specs = ['backups.spec.ts'] if args.backups else ['foundation.spec.ts', 'staff-copy.spec.ts']
+                result = subprocess.run(["node", str(root / "frontend/node_modules/@playwright/test/cli.js"), "test", *specs, "--reporter=line"], cwd=root / "frontend", env=environment)
+                if result.returncode == 0 and not args.backups and not any(b"NTECH EMS test email" in message for message in smtp.messages):
                     raise RuntimeError("Browser email test did not reach the local SMTP sink")
                 return result.returncode
     finally:
@@ -117,6 +124,7 @@ def main():
                 clean()
             finally:
                 engine.dispose()
+                backup_files.cleanup()
 
 
 if __name__ == "__main__":

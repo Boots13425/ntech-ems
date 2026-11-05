@@ -13,7 +13,7 @@ Not yet deployed or verified on an Ubuntu server. Requires a domain, server acce
 7. Adapt the Nginx template domain/certificates and systemd unit. Run `nginx -t`, enable/start the API service, and reload Nginx. Bind API port 8000 to loopback; only Nginx is a trusted forwarded-header source.
 8. Verify HTTPS, readiness, MFA, permission boundaries, real organization/contact changes, mobile layout, installability, updates, and backup recovery on the actual server.
 
-Worker services, certificate issuance, firewall provisioning, automatic deployment, and scheduled/offsite backups are not performed by these templates.
+Certificate issuance, firewall provisioning, automatic deployment, and offsite replication are not performed by these templates. The API owns the Monday noon backup scheduler; configure private storage, keys, and PostgreSQL tools as described in [Backup and recovery](BACKUP_RECOVERY.md).
 
 For SMTP setup, encryption-key handling, and the email configuration migration, see
 [Email Configuration](EMAIL_CONFIGURATION.md). Deploying this feature requires one

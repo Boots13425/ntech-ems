@@ -39,7 +39,7 @@ def connection_environment(url):
 def run(program, args, environment):
     if not shutil.which(program):
         raise SystemExit(f"{program} must be available on PATH")
-    result = subprocess.run([program, *args], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    result = subprocess.run([program, *args], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=1800)
     if result.returncode:
         # Do not echo a database DSN or process environment when a tool fails.
         raise SystemExit(f"{program} failed (exit {result.returncode}). Check database access and tool/server versions.")
@@ -57,51 +57,66 @@ def verified_plaintext(path, target):
     run("pg_restore", ["--list", str(target)], os.environ.copy())
 
 
+def create_backup(directory):
+    """Publish only authenticated, verified archives; keep temporary data private."""
+    cipher = encryption()
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+    with tempfile.TemporaryDirectory(prefix='.ntech-', dir=directory) as temporary:
+        os.chmod(temporary, 0o700)
+        plain = Path(temporary) / 'database.dump'
+        run('pg_dump', ['--format=custom', '--no-owner', '--no-privileges', '--file', str(plain)],
+            connection_environment(get_settings().database_url.get_secret_value()))
+        encrypted = cipher.encrypt(plain.read_bytes())
+        name = f"ntech-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.dump.enc"
+        staged = Path(temporary) / name
+        staged.write_bytes(encrypted)
+        os.chmod(staged, 0o600)
+        checksum = staged.with_suffix('.enc.sha256')
+        checksum.write_text(hashlib.sha256(encrypted).hexdigest(), encoding='ascii')
+        verified_plaintext(staged, plain)
+        output = directory / name
+        checksum.replace(output.with_suffix('.enc.sha256'))
+        staged.replace(output)
+        return output
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["backup", "verify", "restore"])
-    parser.add_argument("--directory", type=Path, default=Path("../backups"))
+    parser.add_argument("--directory", type=Path, help="Override BACKUP_DIRECTORY for this command")
     parser.add_argument("--file", type=Path)
     parser.add_argument("--confirm-database")
     args = parser.parse_args()
     settings = get_settings()
     source_url = settings.database_url.get_secret_value()
+    if args.command == 'backup':
+        print(f'Encrypted backup created and archive verified: {create_backup(args.directory or settings.backup_directory)}')
+        return
     with tempfile.TemporaryDirectory(prefix="ntech-backup-") as temporary:
         os.chmod(temporary, 0o700)
         plain = Path(temporary) / "database.dump"
-        if args.command == "backup":
-            encryption()  # Fail before creating a plaintext dump if the key is missing.
-            args.directory.mkdir(parents=True, exist_ok=True)
-            os.chmod(args.directory, 0o700)
-            run("pg_dump", ["--format=custom", "--no-owner", "--no-privileges", "--file", str(plain)], connection_environment(source_url))
-            output = args.directory / f"ntech-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.dump.enc"
-            encrypted = encryption().encrypt(plain.read_bytes())
-            output.write_bytes(encrypted)
-            os.chmod(output, 0o600)
-            output.with_suffix(output.suffix + ".sha256").write_text(hashlib.sha256(encrypted).hexdigest(), encoding="ascii")
-            verified_plaintext(output, plain)
-            print(f"Encrypted backup created and archive verified: {output}")
-        else:
-            if not args.file:
-                parser.error("--file is required")
-            verified_plaintext(args.file, plain)
-            if args.command == "verify":
-                print("Checksum, encryption authentication, and PostgreSQL archive structure verified. A restore drill is still required to prove recovery.")
-                return
-            target_url = os.environ.get("RESTORE_DATABASE_URL", "")
-            if not target_url:
-                parser.error("Set RESTORE_DATABASE_URL to a separate, empty PostgreSQL database")
-            source, target = make_url(source_url), make_url(target_url)
-            if (source.host, source.port, source.database) == (target.host, target.port, target.database):
-                parser.error("Restore into the source database is forbidden")
-            if not args.confirm_database or args.confirm_database != target.database:
-                parser.error("--confirm-database must match the target database name")
-            environment = connection_environment(target_url)
-            with psycopg.connect(host=environment["PGHOST"], port=environment["PGPORT"], user=environment["PGUSER"], password=environment["PGPASSWORD"], dbname=environment["PGDATABASE"]) as connection:
-                if connection.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'").fetchone()[0]:
-                    parser.error("The restoration target must be empty; no existing tables were changed")
-            run("pg_restore", ["--exit-on-error", "--no-owner", "--no-privileges", "--dbname", target.database, str(plain)], environment)
-            print("Backup restored successfully. Validate record counts and sign-in against the restored database before declaring recovery complete.")
+        if not args.file:
+            parser.error("--file is required")
+        verified_plaintext(args.file, plain)
+        if args.command == "verify":
+            print("Checksum, encryption authentication, and PostgreSQL archive structure verified. A restore drill is still required to prove recovery.")
+            return
+        target_url = os.environ.get("RESTORE_DATABASE_URL", "")
+        if not target_url:
+            parser.error("Set RESTORE_DATABASE_URL to a separate, empty PostgreSQL database")
+        source, target = make_url(source_url), make_url(target_url)
+        if (source.host, source.port, source.database) == (target.host, target.port, target.database):
+            parser.error("Restore into the source database is forbidden")
+        if not args.confirm_database or args.confirm_database != target.database:
+            parser.error("--confirm-database must match the target database name")
+        environment = connection_environment(target_url)
+        with psycopg.connect(host=environment["PGHOST"], port=environment["PGPORT"], user=environment["PGUSER"], password=environment["PGPASSWORD"], dbname=environment["PGDATABASE"]) as connection:
+            if connection.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'").fetchone()[0]:
+                parser.error("The restoration target must be empty; no existing tables were changed")
+        run("pg_restore", ["--exit-on-error", "--no-owner", "--no-privileges", "--dbname", target.database, str(plain)], environment)
+        print("Backup restored successfully. Validate record counts and sign-in against the restored database before declaring recovery complete.")
 
 
 if __name__ == "__main__":

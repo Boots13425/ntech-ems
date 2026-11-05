@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from app.api import auth, management, organizations, email_configuration, campaigns, notifications, opportunities
+from app.api import auth, management, organizations, email_configuration, campaigns, notifications, opportunities, backups
 from app.core.config import get_settings
 from app.db.session import engine
 
@@ -33,12 +33,16 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app):
     from app.services.campaign_runtime import start_worker
+    from app.services.backup_runtime import BackupRunner
     worker = start_worker() if settings.campaign_worker_enabled else None
+    backup_worker = BackupRunner().start() if settings.backup_worker_enabled else None
     try:
         yield
     finally:
         if worker:
             await asyncio.to_thread(worker.stop)
+        if backup_worker:
+            await asyncio.to_thread(backup_worker.stop)
         engine.dispose()
 
 
@@ -97,12 +101,12 @@ def health():
             connection.execute(text("SELECT 1"))
             database = "ready"
             revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-            schema = "ready" if revision == "0006_opportunities" else "migration_required"
+            schema = "ready" if revision == "0007_backups" else "migration_required"
     except SQLAlchemyError:
         pass
     ready = database == schema == "ready"
     return JSONResponse(status_code=200 if ready else 503, content={"status": "ready" if ready else "not_ready", "application": "NTECH EMS", "version": "0.1.0", "database": database, "schema": schema})
 
 
-for router in [auth.router, organizations.router, management.router, email_configuration.router, campaigns.router, notifications.router, opportunities.router]:
+for router in [auth.router, organizations.router, management.router, email_configuration.router, campaigns.router, notifications.router, opportunities.router, backups.router]:
     app.include_router(router, prefix="/api")

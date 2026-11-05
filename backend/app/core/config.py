@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     session_hours: int = 8
     public_url: str = "http://127.0.0.1:5173"
     campaign_worker_enabled: bool = True
+    backup_worker_enabled: bool = True
+    backup_directory: Path = Path(__file__).resolve().parents[3] / 'backups'
     smtp_encryption_key: SecretStr | None = None
     smtp_host: str = ""
     smtp_port: int = 587
