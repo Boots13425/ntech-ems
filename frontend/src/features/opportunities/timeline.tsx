@@ -14,6 +14,53 @@ type Entry = { id: string; action: string; occurred_at: string; created_at: stri
 const when = (value: string) => new Date(value).toLocaleString()
 const words = (value: string) => value.replaceAll('_', ' ')
 const localNow = () => { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
+const eventColors = {
+  green: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  red: 'border-red-200 bg-red-50 text-red-800',
+  orange: 'border-orange-200 bg-orange-50 text-orange-800',
+  blue: 'border-blue-200 bg-blue-50 text-blue-800',
+  purple: 'border-violet-200 bg-violet-50 text-violet-800',
+  neutral: 'border-slate-200 bg-slate-50 text-slate-700',
+}
+type EventColor = keyof typeof eventColors
+
+function eventBadge(entry: Entry): { label: string; color: EventColor } {
+  const d = entry.details
+  if (entry.action === 'opportunity.log_entry' && d.kind) {
+    const colors: Record<Kind, EventColor> = { initial_meeting: 'blue', follow_up_meeting: 'blue', call: 'blue', proposal: 'purple', agreement: 'green', progress: 'orange', note: 'neutral', correction: 'orange' }
+    return { label: kinds[d.kind], color: colors[d.kind] }
+  }
+  if (entry.action.startsWith('opportunity.task_')) {
+    if (d.status === 'completed' || d.completed) return { label: 'Task completed', color: 'green' }
+    if (d.status === 'in_progress') return { label: 'Task in progress', color: 'orange' }
+    if (d.status === 'planned' || entry.action === 'opportunity.task_created') return { label: 'Task planned', color: 'blue' }
+  }
+  if (d.operation) {
+    const operations: Record<string, { label: string; color: EventColor }> = {
+      create: { label: 'Campaign created', color: 'blue' },
+      edit: { label: 'Campaign edited', color: 'neutral' },
+      submit: { label: 'Awaiting approval', color: 'orange' },
+      approve: { label: 'Campaign approved', color: 'green' },
+      reject: { label: 'Campaign rejected', color: 'red' },
+      launch: { label: 'Campaign launched', color: 'blue' },
+      pause: { label: 'Campaign paused', color: 'orange' },
+      resume: { label: 'Campaign resumed', color: 'blue' },
+      cancel: { label: 'Campaign cancelled', color: 'red' },
+      'reply received': { label: 'Reply received', color: 'blue' },
+      'email accepted by mail server': { label: 'Email accepted by mail server', color: 'green' },
+      'email sending failed': { label: 'Email sending failed', color: 'red' },
+      'email delivery uncertain': { label: 'Delivery uncertain', color: 'orange' },
+    }
+    if (operations[d.operation]) return operations[d.operation]
+  }
+  // Use the stage only when this event actually establishes or changes it.
+  if (d.stage && (entry.action === 'opportunity.created' || d.from_stage !== d.stage)) {
+    const colors: Record<string, EventColor> = { new: 'blue', qualified: 'blue', proposal: 'purple', negotiation: 'orange', won: 'green', lost: 'red' }
+    return { label: `Stage: ${words(d.stage)}`, color: colors[d.stage] || 'neutral' }
+  }
+  if (entry.action === 'opportunity.assigned') return { label: 'Owner assigned', color: 'blue' }
+  return { label: words(entry.action.replace('opportunity.', '')), color: 'neutral' }
+}
 // getRandomValues also works on the existing HTTP LAN installation.
 function entryUuid() {
   const bytes = crypto.getRandomValues(new Uint8Array(16))
@@ -35,8 +82,9 @@ export function OpportunityTimeline({ id, canEdit, closed, canReadCampaigns }: {
       {!query.data.items.length && <p className="py-5 text-sm text-muted-foreground">No entries in this view yet.</p>}
       <ol className="ml-2 space-y-6 border-l-2 border-slate-200 pl-6">{query.data.items.map(entry => {
         const d = entry.details, manual = entry.action === 'opportunity.log_entry'
-        return <li key={entry.id} className="relative min-w-0"><span className={`absolute -left-[31px] top-1 size-3 rounded-full border-2 border-white ${manual ? 'bg-primary' : 'bg-slate-400'}`} />
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="font-semibold text-foreground">{manual && d.kind ? kinds[d.kind] : words(entry.action.replace('opportunity.', ''))}</span><time dateTime={entry.occurred_at}>{when(entry.occurred_at)}</time><span>{entry.actor_name}</span>{!manual && <span>Automatic</span>}</div>
+        const badge = eventBadge(entry)
+        return <li key={entry.id} className="relative min-w-0"><span aria-hidden="true" className="absolute -left-[31px] top-2 size-3 rounded-full border-2 border-white bg-slate-400" />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground"><span className={`inline-flex max-w-full rounded-full border px-2.5 py-1 font-semibold capitalize ${eventColors[badge.color]}`}>{badge.label}</span><time dateTime={entry.occurred_at}>{when(entry.occurred_at)}</time><span>{entry.actor_name}</span>{!manual && <span>Automatic</span>}</div>
           {d.title && <p className="mt-2 break-words font-medium">{d.title}</p>}
           {d.participants && <p className="mt-2 break-words text-sm"><strong>Participants:</strong> {d.participants}</p>}
           {d.notes && <p className="mt-2 whitespace-pre-wrap break-words text-sm">{d.notes}</p>}
