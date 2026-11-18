@@ -3,7 +3,8 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 
 from app.core.permissions import effective_permissions
-from app.models import Opportunity, OpportunityTask, User, utcnow
+from app.models import Opportunity, OpportunityTask, OpportunityActivity, User, utcnow
+from app.core.security import audit
 from app.services.notifications import notify
 
 
@@ -11,8 +12,8 @@ def manages(user):
     return any(r.name in ('CEO', 'Manager') for r in user.roles)
 
 
-def scope(query, user):
-    if not manages(user):
+def scope(query, user, assigned_only=False):
+    if assigned_only and not manages(user):
         query = query.where(or_(Opportunity.owner_id == user.id,
             (Opportunity.owner_id.is_(None)) & (Opportunity.creator_id == user.id)))
     return query
@@ -25,8 +26,14 @@ def get_opportunity(db, user, id, write=False):
     if not row:
         raise HTTPException(404, 'Opportunity not found')
     if write and not manages(user) and row.owner_id != user.id:
-        raise HTTPException(403, 'A manager or CEO must assign an owner before work starts')
+        raise HTTPException(403, 'Only the assigned owner or management can update this opportunity')
     return row
+
+
+def record_event(db, actor, action, entity_type, entity_id, organization_id, **details):
+    audit(db, actor, action, entity_type, entity_id, organization_id, **details)
+    db.add(OpportunityActivity(opportunity_id=entity_id, actor_id=actor.id if actor else None,
+        action=action, occurred_at=utcnow(), details=details))
 
 
 def eligible_owner(db, id):

@@ -101,7 +101,7 @@ def health():
             connection.execute(text("SELECT 1"))
             database = "ready"
             revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-            schema = "ready" if revision == "0007_backups" else "migration_required"
+            schema = "ready" if revision == "0008_opportunity_logbook" else "migration_required"
     except SQLAlchemyError:
         pass
     ready = database == schema == "ready"

@@ -11,12 +11,12 @@ from sqlalchemy import select, func, text, or_
 from app.api.dependencies import DB, require
 from app.api.organizations import get_organization, scoped
 from app.core.permissions import effective_permissions
-from app.core.security import audit
+from app.core.security import audit as security_audit
 from app.models import (Opportunity, OpportunitySource, OpportunityTask, Organization, EmailCampaign,
-    CampaignRecipient, AuditEvent, User, utcnow)
+    CampaignRecipient, AuditEvent, OpportunityActivity, User, utcnow)
 from app.schemas import Input
 from app.services.notifications import notify
-from app.services.opportunities import eligible_owner, get_opportunity, manages, scope
+from app.services.opportunities import eligible_owner, get_opportunity, manages, scope, record_event as audit
 from app.services.serialization import audit_json
 
 router = APIRouter(prefix='/opportunities', tags=['Opportunities'])
@@ -68,10 +68,77 @@ class TaskInput(Input):
 class TaskEdit(TaskInput):
     version: int = Field(ge=1)
     completed: bool = False
+    in_progress: bool = False
+
+
+class LogInput(Input):
+    id: UUID
+    kind: Literal['initial_meeting', 'follow_up_meeting', 'call', 'proposal', 'agreement', 'progress', 'note', 'correction']
+    title: str = Field(min_length=2, max_length=180)
+    notes: str = Field(min_length=1, max_length=10000)
+    occurred_at: AwareDatetime
+    participants: str = Field(default='', max_length=1000)
+    outcome: str = Field(default='', max_length=5000)
+    next_task: TaskInput | None = None
+
+    @model_validator(mode='after')
+    def validate_entry(self):
+        if not self.title.strip() or not self.notes.strip():
+            raise ValueError('A title and details are required')
+        if self.occurred_at > utcnow() + timedelta(minutes=5):
+            raise ValueError('Record completed or current events here; schedule future work as a task')
+        return self
 
 
 def task_json(task):
-    return {key: getattr(task, key) for key in ['id', 'title', 'notes', 'due_at', 'completed_at', 'version', 'opportunity_id']}
+    return {key: getattr(task, key) for key in ['id', 'title', 'notes', 'due_at', 'completed_at', 'started_at', 'version', 'opportunity_id']}
+
+
+def activity_json(event, name=None):
+    return dict(id=event.id, action=event.action, occurred_at=event.occurred_at,
+        created_at=event.created_at, actor_name=name or 'System', details=event.details)
+
+
+@router.get('/{id}/timeline')
+def timeline(id: UUID, db: DB, actor: Actor, page: int = Query(default=1, ge=1),
+             kind: Literal['all', 'log', 'automatic'] = 'all'):
+    get_opportunity(db, actor, id)
+    query = select(OpportunityActivity).where(OpportunityActivity.opportunity_id == id)
+    if kind == 'log': query = query.where(OpportunityActivity.action == 'opportunity.log_entry')
+    if kind == 'automatic': query = query.where(OpportunityActivity.action != 'opportunity.log_entry')
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    events = db.execute(query.add_columns(User.full_name).outerjoin(User, User.id == OpportunityActivity.actor_id)
+        .order_by(OpportunityActivity.occurred_at.desc(), OpportunityActivity.id.desc()).offset((page - 1) * 30).limit(30)).all()
+    return dict(items=[activity_json(event, name) for event, name in events], total=total, page=page, page_size=30)
+
+
+@router.post('/{id}/timeline', status_code=201)
+def add_log(id: UUID, data: LogInput, db: DB, actor: Actor):
+    lock(db)
+    row = get_opportunity(db, actor, id, write=True)
+    existing = db.get(OpportunityActivity, data.id)
+    if existing:
+        if existing.opportunity_id != id or existing.actor_id != actor.id or existing.action != 'opportunity.log_entry':
+            raise HTTPException(409, 'Entry identifier already used')
+        return activity_json(existing, actor.full_name)
+    if data.next_task and row.stage in ('won', 'lost'):
+        raise HTTPException(409, 'Reopen the opportunity before scheduling follow-up work')
+    details = data.model_dump(mode='json', exclude={'id', 'occurred_at', 'next_task'})
+    if data.next_task:
+        task = OpportunityTask(opportunity_id=id, **data.next_task.model_dump())
+        db.add(task); db.flush()
+        details['next_task'] = dict(id=str(task.id), **data.next_task.model_dump(mode='json'))
+        if row.owner_id and row.owner_id != actor.id:
+            notify(db, row.owner_id, 'opportunity.task', 'New follow-up task', f'{task.title} — {row.title}',
+                path=f'/opportunities/{id}', permission='opportunities.read')
+    entry = OpportunityActivity(id=data.id, opportunity_id=id, actor_id=actor.id,
+        action='opportunity.log_entry', occurred_at=data.occurred_at, details=details)
+    db.add(entry)
+    row.updated_at = utcnow()
+    security_audit(db, actor, 'opportunity.log_entry', 'opportunity', id, row.organization_id,
+        entry_id=str(entry.id), kind=data.kind, title=data.title)
+    db.commit()
+    return activity_json(entry, actor.full_name)
 
 
 def record(db, row):
@@ -169,7 +236,8 @@ def create(data: Create, db: DB, actor: Actor):
             if manages(user):
                 notify(db, user.id, 'opportunity.assignment_needed', 'Opportunity needs an owner', row.title,
                        path=f'/opportunities/{row.id}', permission='opportunities.read', reviewer_only=True)
-    audit(db, actor, 'opportunity.created', 'opportunity', row.id, row.organization_id, title=row.title)
+    audit(db, actor, 'opportunity.created', 'opportunity', row.id, row.organization_id,
+          title=row.title, stage=row.stage, notes=row.notes, owner=db.get(User, row.owner_id).full_name if row.owner_id else 'Unassigned')
     db.commit()
     return record(db, row)
 
@@ -195,11 +263,15 @@ def edit(id: UUID, data: Edit, db: DB, actor: Actor):
     row = get_opportunity(db, actor, id, write=True)
     if data.version != row.version: raise HTTPException(409, 'Opportunity changed. Reload before saving')
     previous_stage = row.stage
+    changes = {key: {'from': str(getattr(row, key)) if getattr(row, key) is not None else None,
+                     'to': str(value) if value is not None else None}
+               for key, value in data.model_dump(exclude={'version'}).items() if getattr(row, key) != value}
     for key, value in data.model_dump(exclude={'version'}).items(): setattr(row, key, value)
     row.version += 1
     if row.stage != previous_stage:
         notify(db, row.owner_id, 'opportunity.stage', 'Opportunity stage changed', f'{row.title}: {row.stage}', path=f'/opportunities/{id}', permission='opportunities.read') if row.owner_id else None
-    audit(db, actor, 'opportunity.updated', 'opportunity', id, row.organization_id, from_stage=previous_stage, stage=row.stage)
+    if changes:
+        audit(db, actor, 'opportunity.updated', 'opportunity', id, row.organization_id, from_stage=previous_stage, stage=row.stage, changes=changes)
     db.commit()
     return record(db, row)
 
@@ -218,7 +290,8 @@ def assign(id: UUID, data: Assignment, db: DB, actor: Actor):
         for task in db.scalars(select(OpportunityTask).where(OpportunityTask.opportunity_id == id, OpportunityTask.completed_at.is_(None))):
             task.due_notified = task.overdue_notified = False
         notify(db, row.owner_id, 'opportunity.assigned', 'Opportunity assigned to you', row.title, path=f'/opportunities/{id}', permission='opportunities.read')
-        audit(db, actor, 'opportunity.assigned', 'opportunity', id, row.organization_id, previous_owner=str(old_owner) if old_owner else None, owner=str(row.owner_id))
+        audit(db, actor, 'opportunity.assigned', 'opportunity', id, row.organization_id,
+            previous_owner=db.get(User, old_owner).full_name if old_owner else 'Unassigned', owner=db.get(User, row.owner_id).full_name)
     db.commit()
     return record(db, row)
 
@@ -232,7 +305,8 @@ def create_task(id: UUID, data: TaskInput, db: DB, actor: Actor):
     db.add(task); db.flush()
     if row.owner_id and row.owner_id != actor.id:
         notify(db, row.owner_id, 'opportunity.task', 'New follow-up task', f'{task.title} — {row.title}', path=f'/opportunities/{id}', permission='opportunities.read')
-    audit(db, actor, 'opportunity.task_created', 'opportunity', id, row.organization_id, task=str(task.id), title=task.title)
+    row.updated_at = utcnow()
+    audit(db, actor, 'opportunity.task_created', 'opportunity', id, row.organization_id, task=str(task.id), title=task.title, notes=task.notes, due_at=task.due_at.isoformat())
     db.commit()
     return task_json(task)
 
@@ -244,11 +318,17 @@ def edit_task(id: UUID, task_id: UUID, data: TaskEdit, db: DB, actor: Actor):
     task = db.get(OpportunityTask, task_id)
     if not task or task.opportunity_id != id: raise HTTPException(404, 'Task not found')
     if data.version != task.version: raise HTTPException(409, 'Task changed. Reload before saving')
+    before = dict(title=task.title, notes=task.notes, due_at=task.due_at.isoformat(),
+        status='completed' if task.completed_at else 'in_progress' if task.started_at else 'planned')
     if task.due_at != data.due_at or (task.completed_at and not data.completed):
         task.due_notified = task.overdue_notified = False
     task.title, task.notes, task.due_at = data.title, data.notes, data.due_at
     task.completed_at = (task.completed_at or utcnow()) if data.completed else None
+    task.started_at = (task.started_at or utcnow()) if data.in_progress or data.completed else None
     task.version += 1
-    audit(db, actor, 'opportunity.task_updated', 'opportunity', id, row.organization_id, task=str(task.id), completed=data.completed)
+    row.updated_at = utcnow()
+    audit(db, actor, 'opportunity.task_updated', 'opportunity', id, row.organization_id, task=str(task.id),
+          title=task.title, notes=task.notes, due_at=task.due_at.isoformat(), completed=data.completed,
+          status='completed' if task.completed_at else 'in_progress' if task.started_at else 'planned', previous=before)
     db.commit()
     return task_json(task)

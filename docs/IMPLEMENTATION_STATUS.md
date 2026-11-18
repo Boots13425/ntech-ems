@@ -1,5 +1,15 @@
 # Implementation status
 
+## Shared opportunity logbook - 18 November 2026
+
+- Implemented: dated meeting/call/proposal/agreement/progress entries with participants, outcomes, author, and recorded time; append-only corrections; paginated timeline with staff/automatic filters.
+- All users with Opportunities permission can follow company-wide progress. Management and the assigned owner retain exclusive editing rights; only management assigns owners. Recipient notifications retain their assignment restrictions.
+- Tasks expose planned, in-progress, and completed work. An activity can create its follow-up atomically, with retry deduplication and existing owner-based due/overdue reminders.
+- Automatic entries cover creation, assignment, detail/stage changes, task history, linked campaign actions, sending outcomes, and new replies. Email bodies remain in Campaigns.
+- Migration `0008_opportunity_logbook` applied locally; schema check passed and all five existing opportunity audit events were preserved in the timeline. Local health reports ready.
+- All 94 backend tests, frontend typecheck/build, and three browser checks passed, including staff meeting entry, follow-up creation, task start/completion, cross-user viewing, and mobile overflow. Browser verification uses the isolated test database; no live customer emails were sent.
+- Existing installations need the migration, frontend build, and API restart. See [Opportunities](OPPORTUNITIES.md).
+
 ## Backup module - 5 November 2026
 
 - Implemented: CEO-only Backup navigation/page and Settings link, Monday 12:00 Africa/Douala scheduling, manual durable queue, catch-up after downtime, interrupted-job history, encrypted verified downloads/checksums, audit events, and retention of eight successful module archives.

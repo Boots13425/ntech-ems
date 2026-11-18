@@ -202,6 +202,8 @@ def create_campaign(data: CampaignInput, db: DB, actor: Actor):
     row = EmailCampaign(owner_id=actor.id, name=data.name, objective=data.objective, subject=data.subject, body=data.body)
     db.add(row)
     apply_campaign(db, actor, row, data)
+    if row.opportunity_id:
+        campaign_event(db, row, actor, 'create')
     db.commit()
     return summary(db, row)
 

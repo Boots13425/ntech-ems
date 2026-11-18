@@ -29,7 +29,7 @@ def visible(actor):
                    Notification.required_permission.in_(effective_permissions(actor)))]
     if not any(role.name in ('CEO', 'Manager') for role in actor.roles):
         clauses.append(Notification.reviewer_only.is_(False))
-    opportunity_paths = scope(select(literal('/opportunities/') + cast(Opportunity.id, String)), actor)
+    opportunity_paths = scope(select(literal('/opportunities/') + cast(Opportunity.id, String)), actor, assigned_only=True)
     clauses.append(or_(~Notification.kind.startswith('opportunity.'), Notification.path.in_(opportunity_paths)))
     return clauses
 

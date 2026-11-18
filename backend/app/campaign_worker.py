@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import engine
 from app.core.security import audit
-from app.services.notifications import campaign_reply
+from app.services.notifications import campaign_reply, opportunity_email_event
 from app.services.opportunities import remind_tasks
 from app.models import (EmailConfiguration, EmailCampaign, CampaignRecipient, OutboundEmail, InboundEmail,
                         MailboxSyncState, CampaignWorkerState, Contact, AuditEvent, utcnow)
@@ -284,6 +284,11 @@ def process_one(db, config, transport=None, initial_only=False):
             stop_recipient(db, recipient, 'requires_attention')
         audit(db, None, 'campaign.email_' + status, 'contact', recipient.contact_id, recipient.organization_id,
               outbound_id=str(job.id), attempt=job.attempts)
+        opportunity_email_event(db, campaign, recipient, {
+            'accepted': 'email accepted by mail server',
+            'failed': 'email sending failed',
+            'uncertain': 'email delivery uncertain',
+        }.get(status, status))
         db.commit()
         break
     for campaign in db.scalars(select(EmailCampaign).where(EmailCampaign.status == 'active')):

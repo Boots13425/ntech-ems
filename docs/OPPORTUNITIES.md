@@ -1,8 +1,39 @@
 # Opportunities and follow-up work
 
 Opportunities connect a customer requirement to an accountable owner, pipeline
-stage, estimated value, expected close date, and next action. Internal notes and
-tasks live here. **Every email and reply stays in Email campaigns.**
+stage, estimated value, expected close date, and next action. The shared logbook and follow-up tasks live here. **Every email and reply stays in Email campaigns.**
+
+## Shared logbook
+
+Open an opportunity and select **Record activity** in its timeline. Record an
+initial or follow-up meeting, phone call, proposal, agreement, progress update,
+note, or correction. Each entry includes the event date/time, author, details,
+optional participants, and outcome or agreement. The recorded timestamp is also
+preserved. Future work belongs in tasks rather than a future-dated activity.
+
+Select **Schedule a follow-up from this entry** to save the log and its next task
+in one transaction. Ownership comes from the opportunity. Retrying the same save
+does not duplicate the entry or task. Existing due-soon and overdue reminders
+apply automatically. Closed opportunities accept historical notes but must be
+reopened before scheduling new work.
+
+Tasks show **Planned**, **In progress**, or **Completed**. Start, complete, reopen,
+and reschedule them as work progresses. The timeline automatically records
+creation, assignment, stage/detail changes, and task changes, including old and
+new task details. Linked campaign creation/actions, email sending outcomes, and newly received replies
+also appear automatically; email bodies remain in Campaigns under its access
+rules. Source-conversation replies are logged against their opportunity too.
+
+Timeline entries are preserved: add a correction instead of overwriting history.
+The timeline is ordered by event date (newest first), provides separate staff and
+automatic filters, loads 30 entries per page, and refreshes every 30 seconds.
+Dates are shown in the viewer's local timezone. Existing audit history is migrated
+as recorded; missing historical meeting details are not reconstructed.
+
+Migration `0008_opportunity_logbook` adds the timeline table, backfills existing
+opportunity audit events, and adds task start timestamps. It preserves existing
+accounts, opportunities, tasks, and business records. New automatic campaign
+entries are recorded from this update onward.
 
 ## Daily flow
 
@@ -25,8 +56,10 @@ tasks live here. **Every email and reply stays in Email campaigns.**
 ## Access rules
 
 - `opportunities.read` is the module permission. CEO/Manager roles can oversee all
-  opportunities; staff can view and edit their assigned opportunities.
-- Staff may view their own unassigned submissions but cannot assign themselves,
+  opportunities. All users with this permission can view the company opportunity
+  list, details, tasks, and timeline. Only management and the assigned owner can
+  update an opportunity, record activities, or change tasks.
+- Staff can view unassigned submissions but cannot assign themselves,
   assign others, or start task work until management assigns an owner.
 - Only a CEO or Manager with module access can assign/reassign. The new owner must
   be active and have Opportunities access. Ownership changes do not transfer the
@@ -35,8 +68,9 @@ tasks live here. **Every email and reply stays in Email campaigns.**
   contacts, independently of general directory ownership. `campaigns.read` is
   still required. New linked drafts retain normal campaign approvals and sending
   restrictions. Original source campaigns retain their existing access rules.
-- Assignment changes immediately revoke the old owner's opportunity access and
-  linked draft editing. Private opportunity alerts are filtered using current access.
+- Assignment changes immediately revoke the old owner's editing access, including
+  linked draft editing. Shared read access remains. Private opportunity alerts
+  stay recipient-specific and are filtered using current assignment.
 - Existing company-wide campaign viewing is unchanged.
 - Duplicate conversation conversion, stale edits, negative values, invalid dates,
   foreign contacts, unauthorized assignment, and cross-opportunity task edits are
@@ -62,9 +96,9 @@ tasks live here. **Every email and reply stays in Email campaigns.**
 
 ## Deployment
 
-Migration `0006_opportunities` adds opportunity/task/source tables and the optional
+Migration `0006_opportunities` introduced opportunity/task/source tables and the optional
 campaign association. It adds the existing `opportunities.read` permission to the
-Staff role, whose data remains scoped to assigned work. Existing business data is
+Staff role. Existing business data is
 preserved and no sample opportunities or emails are created.
 
 From the repository root:

@@ -364,6 +364,17 @@ class OpportunityTask(Entity, Base):
     notes: Mapped[str] = mapped_column(Text, default='')
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     overdue_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class OpportunityActivity(Entity, Base):
+    __tablename__ = 'opportunity_activities'
+    opportunity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('opportunities.id'))
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('users.id'), index=True)
+    action: Mapped[str] = mapped_column(String(100))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    details: Mapped[dict] = mapped_column(JSONB, default=dict)
+    __table_args__ = (Index('ix_opportunity_activity_timeline', 'opportunity_id', 'occurred_at', 'id'),)
